@@ -1,0 +1,1 @@
+/root/project/csi-sidecars-aio-poc/hack/pkg/attacher/cmd/csi-attacher/main.go
