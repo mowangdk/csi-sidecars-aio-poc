@@ -9,23 +9,7 @@ jobs:
     runs-on: [ubuntu-latest]
     strategy:
       matrix:
-        go: ["1.25.7"]
-    steps:
-    - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
-    - uses: actions/setup-go@v5
-      with:
-        go-version: ${{ matrix.go }}
-    - run: |
-        echo "GOPATH=$(go env GOPATH)" >> $GITHUB_ENV
-    - run: go version
-    - run: ./hack/do_cleanup.sh
-    - run: ./hack/do_sync.sh
-
-  clone-commit-history:
-    runs-on: [ubuntu-latest]
-    strategy:
-      matrix:
-        go: ["1.25.7"]
+        go: ["1.26.0"]
     steps:
     - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
     - uses: actions/setup-go@v5
@@ -34,29 +18,33 @@ jobs:
     - uses: actions/setup-python@v5
       with:
         python-version: "3.13"
-    - name: Configure Git
-      run: |
-        git config --global user.name "GitHub Actions Bot"
-        git config --global user.email "actions-bot@users.noreply.github.com"
-    - name: Install dependencies
-      run: |
+    - run: |
+        echo "GOPATH=$(go env GOPATH)" >> $GITHUB_ENV
+    - run: go version
+    - run: ./hack/do_cleanup.sh
+    - run: |
         python3 -m venv venv && source venv/bin/activate
-        ./hack/do_clone_commit_history.sh
+        ./hack/do_sync.sh
 
   e2e-hostpath:
     runs-on: [ubuntu-latest]
     strategy:
       matrix:
-        go: ["1.25.7"]
+        go: ["1.26.0"]
     steps:
     - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
     - uses: actions/setup-go@v5
       with:
         go-version: ${{ matrix.go }}
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.13"
     - run: |
         echo "GOPATH=$(go env GOPATH)" >> $GITHUB_ENV
     - run: go version
     - run: ./hack/do_cleanup.sh 2>&1
-    - run: ./hack/do_sync.sh 2>&1
+    - run: |
+        python3 -m venv venv && source venv/bin/activate
+        ./hack/do_sync.sh 2>&1
     - run: ./.prow.sh 2>&1
     - run:  grep "Ginkgo ran" -B 4 .prow.sh.log

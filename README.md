@@ -31,7 +31,8 @@ For more information please look at the following resources:
 
 Requirements:
 
-- go 1.24
+- go 1.26
+- python 3 (for `git-filter-repo`)
 
 ### Building the project locally
 
@@ -40,19 +41,15 @@ After cloning the repo, run the following commands to start from scratch:
 ```bash
 # cleanup first
 ./hack/do_cleanup.sh
-# clone repo, setup go workspaces and build
+# setup venv, clone repos with history, setup go workspaces and build
+python3 -m venv venv && source venv/bin/activate
 ./hack/do_sync.sh 2>&1 | tee hack/do_sync.log
 ```
 
 Logs: [./hack/do_sync.log](./hack/do_sync.log)
 
-We're trying out cloning existing repos preserving their commit history,
-the following script implements it:
-
-```bash
-python3 -m venv .venv && source .venv/bin/activate
-./hack/do_cleanup.sh && ./hack/do_clone_commit_history.sh
-```
+The sync script clones each sidecar repo preserving their commit history
+(using `git-filter-repo`). The full commit history is available at `pkg/<sidecar>/.git`.
 
 ### Building the project using CI
 
