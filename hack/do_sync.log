@@ -1,17 +1,11 @@
-+ TRASH=trash
-+ command -v trash
-+ TRASH='rm -rf'
-+ rm -rf pkg cmd staging vendor go.mod go.sum go.work go.work.sum tmp bin
-[root@iZrj96h7iywwlhiwr92j72Z csi-sidecars-aio-poc]# ./hack/do_sync.sh.sh > do_sync.log
--bash: ./hack/do_sync.sh.sh: No such file or directory
-[root@iZrj96h7iywwlhiwr92j72Z csi-sidecars-aio-poc]# ^C
-[root@iZrj96h7iywwlhiwr92j72Z csi-sidecars-aio-poc]# ./hack/do_sync.sh > do_sync.log
 ++ uname
 + [[ Linux != \L\i\n\u\x ]]
++ [[ -z /root/csi-sidecars-aio-poc/venv ]]
++ command -v git-filter-repo
 + SKIP_SANITY_CHECK=
 + DRY_RUN=false
 ++ go version
-+ [[ ! go version go1.25.7 (Red Hat 1.25.7-1.0.1.al8) linux/amd64 =~ go1.25 ]]
++ [[ ! go version go1.26.3 linux/amd64 =~ go1.2[6-9] ]]
 + TRASH=trash
 + command -v trash
 + TRASH='rm -rf'
@@ -20,18 +14,40 @@
 + IFS=,
 + read SIDECAR SIDECAR_HASH
 + [[ ! -d pkg/attacher ]]
-+ git clone --depth 1 https://github.com/kubernetes-csi/external-attacher pkg/attacher
++ git clone https://github.com/kubernetes-csi/external-attacher pkg/attacher
 Cloning into 'pkg/attacher'...
-remote: Enumerating objects: 7703, done.
-remote: Counting objects: 100% (7703/7703), done.
-remote: Compressing objects: 100% (5139/5139), done.
-remote: Total 7703 (delta 2983), reused 5045 (delta 2165), pack-reused 0 (from 0)
-Receiving objects: 100% (7703/7703), 9.80 MiB | 20.56 MiB/s, done.
-Resolving deltas: 100% (2983/2983), done.
+remote: Enumerating objects: 50664, done.
+remote: Counting objects: 100% (2310/2310), done.
+remote: Compressing objects: 100% (1214/1214), done.
+remote: Total 50664 (delta 1193), reused 1488 (delta 1038), pack-reused 48354 (from 2)
+Receiving objects: 100% (50664/50664), 62.51 MiB | 41.57 MiB/s, done.
+Resolving deltas: 100% (30244/30244), done.
 + cd pkg/attacher
 + git checkout master
 Already on 'master'
+Your branch is up to date with 'origin/master'.
 + git rev-parse --short HEAD
+f395fb4f
++ git filter-repo --commit-callback '
+original_hash = commit.original_id.decode()
+original_message = commit.message.decode()
+new_message = f"{original_message}\n\nImported-from: external-attacher\n\nOriginal-commit-hash: {original_hash}"
+commit.message = new_message.encode()
+        ' --force
+NOTICE: Removing 'origin' remote; see 'Why is my origin removed?'
+        in the manual if you want to push back there.
+        (was https://github.com/kubernetes-csi/external-attacher)
+Parsed 1314 commits
+New history written in 0.49 seconds; now repacking/cleaning...
+Repacking your repo and cleaning out old unneeded objects
+HEAD is now at 28141fb7 Merge pull request #723 from jsafrane/changelog-4.12
+Enumerating objects: 50664, done.
+Counting objects: 100% (50664/50664), done.
+Delta compression using up to 16 threads
+Compressing objects: 100% (17644/17644), done.
+Writing objects: 100% (50664/50664), done.
+Total 50664 (delta 30159), reused 50664 (delta 30159), pack-reused 0
+Completely finished after 1.13 seconds.
 + cat pkg/attacher/go.mod
 + grep '        '
 + grep -v indirect
@@ -40,7 +56,6 @@ Already on 'master'
 + sed s/v0.35.0/v0.35.2/g
 + cat pkg/attacher/go.mod
 + grep 'replace k8s.io/api =>'
-+ rm -rf pkg/attacher/.git
 + rm -rf pkg/attacher/.github
 + rm -rf pkg/attacher/vendor
 + rm -rf pkg/attacher/release-tools
@@ -54,6 +69,36 @@ Already on 'master'
 + rm -rf pkg/attacher/Makefile
 + cd pkg/attacher
 + find . -type f -exec grep -q github.com/kubernetes-csi/external-attacher/ --files-with-matches '{}' ';' -print
+./CHANGELOG/CHANGELOG-3.5.md
+./CHANGELOG/CHANGELOG-1.1.md
+./CHANGELOG/CHANGELOG-4.7.md
+./CHANGELOG/CHANGELOG-4.0.md
+./CHANGELOG/CHANGELOG-3.0.md
+./CHANGELOG/CHANGELOG-4.9.md
+./CHANGELOG/CHANGELOG-4.8.md
+./CHANGELOG/CHANGELOG-2.1.md
+./CHANGELOG/CHANGELOG-2.2.md
+./CHANGELOG/CHANGELOG-4.12.md
+./CHANGELOG/CHANGELOG-1.2.md
+./CHANGELOG/CHANGELOG-4.1.md
+./CHANGELOG/CHANGELOG-3.1.md
+./CHANGELOG/CHANGELOG-3.3.md
+./CHANGELOG/CHANGELOG-4.2.md
+./CHANGELOG/CHANGELOG-3.2.md
+./CHANGELOG/CHANGELOG-3.4.md
+./CHANGELOG/CHANGELOG-2.0.md
+./CHANGELOG/CHANGELOG-4.10.md
+./CHANGELOG/CHANGELOG-4.3.md
+./CHANGELOG/CHANGELOG-4.5.md
+./CHANGELOG/CHANGELOG-4.11.md
+./CHANGELOG/CHANGELOG-4.6.md
+./cmd/csi-attacher/main.go
+./pkg/controller/trivial_handler_test.go
+./pkg/controller/framework_test.go
+./pkg/controller/csi_handler_test.go
+./pkg/controller/controller.go
+./pkg/controller/csi_handler.go
+./pkg/attacher/attacher_test.go
 + cd pkg/attacher
 + find . -type f -exec grep -q github.com/kubernetes-csi/external-attacher/ --files-with-matches '{}' ';' -print
 + xargs sed -E -i.bak 's%github.com/kubernetes-csi/external-attacher/(v[0-9]+/)?%github.com/kubernetes-csi/csi-sidecars/pkg/attacher/%g'
@@ -61,6 +106,7 @@ Already on 'master'
 ++ basename pkg/attacher/cmd/csi-attacher/main.go
 + NEW_FILE=cmd/csi-sidecars/attacher_main.go
 + cp -v -- pkg/attacher/cmd/csi-attacher/main.go cmd/csi-sidecars/attacher_main.go
+'pkg/attacher/cmd/csi-attacher/main.go' -> 'cmd/csi-sidecars/attacher_main.go'
 + sed -i.bak 's/func main()/func attacher_main(ctx context.Context)/g' cmd/csi-sidecars/attacher_main.go
 + sed -i.bak '/^var (/,/^)/d' cmd/csi-sidecars/attacher_main.go
 + sed -i.bak '/ctx :=/d' cmd/csi-sidecars/attacher_main.go
@@ -100,18 +146,40 @@ Already on 'master'
 + IFS=,
 + read SIDECAR SIDECAR_HASH
 + [[ ! -d pkg/provisioner ]]
-+ git clone --depth 1 https://github.com/kubernetes-csi/external-provisioner pkg/provisioner
++ git clone https://github.com/kubernetes-csi/external-provisioner pkg/provisioner
 Cloning into 'pkg/provisioner'...
-remote: Enumerating objects: 9966, done.
-remote: Counting objects: 100% (9966/9966), done.
-remote: Compressing objects: 100% (6549/6549), done.
-remote: Total 9966 (delta 3745), reused 6762 (delta 2891), pack-reused 0 (from 0)
-Receiving objects: 100% (9966/9966), 13.29 MiB | 24.89 MiB/s, done.
-Resolving deltas: 100% (3745/3745), done.
+remote: Enumerating objects: 120281, done.
+remote: Counting objects: 100% (413/413), done.
+remote: Compressing objects: 100% (243/243), done.
+remote: Total 120281 (delta 234), reused 171 (delta 169), pack-reused 119868 (from 2)
+Receiving objects: 100% (120281/120281), 119.88 MiB | 40.70 MiB/s, done.
+Resolving deltas: 100% (68751/68751), done.
 + cd pkg/provisioner
 + git checkout master
 Already on 'master'
+Your branch is up to date with 'origin/master'.
 + git rev-parse --short HEAD
+63caed358
++ git filter-repo --commit-callback '
+original_hash = commit.original_id.decode()
+original_message = commit.message.decode()
+new_message = f"{original_message}\n\nImported-from: external-provisioner\n\nOriginal-commit-hash: {original_hash}"
+commit.message = new_message.encode()
+        ' --force
+NOTICE: Removing 'origin' remote; see 'Why is my origin removed?'
+        in the manual if you want to push back there.
+        (was https://github.com/kubernetes-csi/external-provisioner)
+Parsed 2024 commits
+New history written in 1.32 seconds; now repacking/cleaning...
+Repacking your repo and cleaning out old unneeded objects
+HEAD is now at 39d4a98b3 Merge pull request #1510 from kubernetes-csi/dependabot/go_modules/github-dependencies-eae69b5a00
+Enumerating objects: 120281, done.
+Counting objects: 100% (120281/120281), done.
+Delta compression using up to 16 threads
+Compressing objects: 100% (45001/45001), done.
+Writing objects: 100% (120281/120281), done.
+Total 120281 (delta 68639), reused 120281 (delta 68639), pack-reused 0
+Completely finished after 2.60 seconds.
 + cat pkg/provisioner/go.mod
 + grep '        '
 + grep -v indirect
@@ -120,8 +188,6 @@ Already on 'master'
 + sed s/v0.35.0/v0.35.2/g
 + cat pkg/provisioner/go.mod
 + grep 'replace k8s.io/api =>'
-+ [[ 1 == 1 ]]
-+ rm -rf pkg/provisioner/.git
 + rm -rf pkg/provisioner/.github
 + rm -rf pkg/provisioner/vendor
 + rm -rf pkg/provisioner/release-tools
@@ -135,6 +201,38 @@ Already on 'master'
 + rm -rf pkg/provisioner/Makefile
 + cd pkg/provisioner
 + find . -type f -exec grep -q github.com/kubernetes-csi/external-provisioner/ --files-with-matches '{}' ';' -print
+./CHANGELOG/CHANGELOG-5.3.md
+./CHANGELOG/CHANGELOG-1.4.md
+./CHANGELOG/CHANGELOG-1.6.md
+./CHANGELOG/CHANGELOG-1.1.md
+./CHANGELOG/CHANGELOG-4.0.md
+./CHANGELOG/CHANGELOG-3.0.md
+./CHANGELOG/CHANGELOG-2.1.md
+./CHANGELOG/CHANGELOG-6.1.md
+./CHANGELOG/CHANGELOG-2.2.md
+./CHANGELOG/CHANGELOG-5.2.md
+./CHANGELOG/CHANGELOG-1.2.md
+./CHANGELOG/CHANGELOG-5.0.md
+./CHANGELOG/CHANGELOG-5.1.md
+./CHANGELOG/CHANGELOG-1.3.md
+./CHANGELOG/CHANGELOG-6.0.md
+./CHANGELOG/CHANGELOG-3.1.md
+./CHANGELOG/CHANGELOG-1.5.md
+./CHANGELOG/CHANGELOG-3.3.md
+./CHANGELOG/CHANGELOG-6.2.md
+./CHANGELOG/CHANGELOG-3.2.md
+./CHANGELOG/CHANGELOG-3.4.md
+./CHANGELOG/CHANGELOG-2.0.md
+./cmd/csi-provisioner/csi-provisioner.go
+./test/e2e/e2e_test.go
+./pkg/capacity/capacity_test.go
+./pkg/capacity/capacity.go
+./pkg/controller/fake_translator_test.go
+./pkg/controller/controller_test.go
+./pkg/controller/topology.go
+./pkg/controller/clone_controller.go
+./pkg/controller/controller.go
+./extras/docker/Dockerfile.builder
 + cd pkg/provisioner
 + find . -type f -exec grep -q github.com/kubernetes-csi/external-provisioner/ --files-with-matches '{}' ';' -print
 + xargs sed -E -i.bak 's%github.com/kubernetes-csi/external-provisioner/(v[0-9]+/)?%github.com/kubernetes-csi/csi-sidecars/pkg/provisioner/%g'
@@ -142,6 +240,7 @@ Already on 'master'
 ++ basename pkg/provisioner/cmd/csi-provisioner/csi-provisioner.go
 + NEW_FILE=cmd/csi-sidecars/provisioner_csi-provisioner.go
 + cp -v -- pkg/provisioner/cmd/csi-provisioner/csi-provisioner.go cmd/csi-sidecars/provisioner_csi-provisioner.go
+'pkg/provisioner/cmd/csi-provisioner/csi-provisioner.go' -> 'cmd/csi-sidecars/provisioner_csi-provisioner.go'
 + sed -i.bak 's/func main()/func provisioner_main(ctx context.Context)/g' cmd/csi-sidecars/provisioner_csi-provisioner.go
 + sed -i.bak '/^var (/,/^)/d' cmd/csi-sidecars/provisioner_csi-provisioner.go
 + sed -i.bak '/ctx :=/d' cmd/csi-sidecars/provisioner_csi-provisioner.go
@@ -172,6 +271,7 @@ Already on 'master'
 ++ basename pkg/provisioner/cmd/csi-provisioner/util.go
 + NEW_FILE=cmd/csi-sidecars/provisioner_util.go
 + cp -v -- pkg/provisioner/cmd/csi-provisioner/util.go cmd/csi-sidecars/provisioner_util.go
+'pkg/provisioner/cmd/csi-provisioner/util.go' -> 'cmd/csi-sidecars/provisioner_util.go'
 + sed -i.bak 's/func main()/func provisioner_main(ctx context.Context)/g' cmd/csi-sidecars/provisioner_util.go
 + sed -i.bak '/^var (/,/^)/d' cmd/csi-sidecars/provisioner_util.go
 + sed -i.bak '/ctx :=/d' cmd/csi-sidecars/provisioner_util.go
@@ -202,6 +302,7 @@ Already on 'master'
 ++ basename pkg/provisioner/cmd/csi-provisioner/util_test.go
 + NEW_FILE=cmd/csi-sidecars/provisioner_util_test.go
 + cp -v -- pkg/provisioner/cmd/csi-provisioner/util_test.go cmd/csi-sidecars/provisioner_util_test.go
+'pkg/provisioner/cmd/csi-provisioner/util_test.go' -> 'cmd/csi-sidecars/provisioner_util_test.go'
 + sed -i.bak 's/func main()/func provisioner_main(ctx context.Context)/g' cmd/csi-sidecars/provisioner_util_test.go
 + sed -i.bak '/^var (/,/^)/d' cmd/csi-sidecars/provisioner_util_test.go
 + sed -i.bak '/ctx :=/d' cmd/csi-sidecars/provisioner_util_test.go
@@ -233,18 +334,40 @@ Already on 'master'
 + IFS=,
 + read SIDECAR SIDECAR_HASH
 + [[ ! -d pkg/resizer ]]
-+ git clone --depth 1 https://github.com/kubernetes-csi/external-resizer pkg/resizer
++ git clone https://github.com/kubernetes-csi/external-resizer pkg/resizer
 Cloning into 'pkg/resizer'...
-remote: Enumerating objects: 7676, done.
-remote: Counting objects: 100% (7676/7676), done.
-remote: Compressing objects: 100% (5244/5244), done.
-remote: Total 7676 (delta 2902), reused 4836 (delta 2045), pack-reused 0 (from 0)
-Receiving objects: 100% (7676/7676), 10.12 MiB | 15.65 MiB/s, done.
-Resolving deltas: 100% (2902/2902), done.
+remote: Enumerating objects: 36311, done.
+remote: Counting objects: 100% (3309/3309), done.
+remote: Compressing objects: 100% (1437/1437), done.
+remote: Total 36311 (delta 2005), reused 2276 (delta 1802), pack-reused 33002 (from 2)
+Receiving objects: 100% (36311/36311), 34.19 MiB | 37.41 MiB/s, done.
+Resolving deltas: 100% (23128/23128), done.
 + cd pkg/resizer
 + git checkout master
 Already on 'master'
+Your branch is up to date with 'origin/master'.
 + git rev-parse --short HEAD
+8e006946
++ git filter-repo --commit-callback '
+original_hash = commit.original_id.decode()
+original_message = commit.message.decode()
+new_message = f"{original_message}\n\nImported-from: external-resizer\n\nOriginal-commit-hash: {original_hash}"
+commit.message = new_message.encode()
+        ' --force
+NOTICE: Removing 'origin' remote; see 'Why is my origin removed?'
+        in the manual if you want to push back there.
+        (was https://github.com/kubernetes-csi/external-resizer)
+Parsed 942 commits
+New history written in 0.39 seconds; now repacking/cleaning...
+Repacking your repo and cleaning out old unneeded objects
+HEAD is now at 88fc80a3 Merge pull request #578 from dfajmon/k8s-1.36.1-bump
+Enumerating objects: 36311, done.
+Counting objects: 100% (36311/36311), done.
+Delta compression using up to 16 threads
+Compressing objects: 100% (11258/11258), done.
+Writing objects: 100% (36311/36311), done.
+Total 36311 (delta 23075), reused 36311 (delta 23075), pack-reused 0
+Completely finished after 0.99 seconds.
 + cat pkg/resizer/go.mod
 + grep '        '
 + grep -v indirect
@@ -255,7 +378,6 @@ Already on 'master'
 + cat pkg/resizer/go.mod
 + grep 'replace k8s.io/api =>'
 + [[ 1 == 1 ]]
-+ rm -rf pkg/resizer/.git
 + rm -rf pkg/resizer/.github
 + rm -rf pkg/resizer/vendor
 + rm -rf pkg/resizer/release-tools
@@ -269,6 +391,42 @@ Already on 'master'
 + rm -rf pkg/resizer/Makefile
 + cd pkg/resizer
 + find . -type f -exec grep -q github.com/kubernetes-csi/external-resizer/ --files-with-matches '{}' ';' -print
+./CHANGELOG/CHANGELOG-1.4.md
+./CHANGELOG/CHANGELOG-1.10.md
+./CHANGELOG/CHANGELOG-1.6.md
+./CHANGELOG/CHANGELOG-1.1.md
+./CHANGELOG/CHANGELOG-1.13.md
+./CHANGELOG/CHANGELOG-2.1.md
+./CHANGELOG/CHANGELOG-0.3.md
+./CHANGELOG/CHANGELOG-1.2.md
+./CHANGELOG/CHANGELOG-0.2.md
+./CHANGELOG/CHANGELOG-1.3.md
+./CHANGELOG/CHANGELOG-1.0.md
+./CHANGELOG/CHANGELOG-1.5.md
+./CHANGELOG/CHANGELOG-1.7.md
+./CHANGELOG/CHANGELOG-0.5.md
+./CHANGELOG/CHANGELOG-2.0.md
+./CHANGELOG/CHANGELOG-0.4.md
+./CHANGELOG/CHANGELOG-1.11.md
+./CHANGELOG/CHANGELOG-0.1.md
+./cmd/csi-resizer/main.go
+./pkg/resizer/csi_resizer_test.go
+./pkg/resizer/trivial_resizer.go
+./pkg/resizer/csi_resizer.go
+./pkg/controller/resize_status_test.go
+./pkg/controller/expand_and_recover_test.go
+./pkg/controller/controller_test.go
+./pkg/controller/expand_and_recover.go
+./pkg/controller/controller.go
+./pkg/controller/resize_status.go
+./pkg/modifier/csi_modifier_test.go
+./pkg/modifier/csi_modifier.go
+./pkg/modifycontroller/modify_status.go
+./pkg/modifycontroller/controller_test.go
+./pkg/modifycontroller/controller.go
+./pkg/modifycontroller/modify_status_test.go
+./pkg/modifycontroller/modify_volume.go
+./pkg/modifycontroller/modify_volume_test.go
 + cd pkg/resizer
 + find . -type f -exec grep -q github.com/kubernetes-csi/external-resizer/ --files-with-matches '{}' ';' -print
 + xargs sed -E -i.bak 's%github.com/kubernetes-csi/external-resizer/(v[0-9]+/)?%github.com/kubernetes-csi/csi-sidecars/pkg/resizer/%g'
@@ -276,6 +434,7 @@ Already on 'master'
 ++ basename pkg/resizer/cmd/csi-resizer/main.go
 + NEW_FILE=cmd/csi-sidecars/resizer_main.go
 + cp -v -- pkg/resizer/cmd/csi-resizer/main.go cmd/csi-sidecars/resizer_main.go
+'pkg/resizer/cmd/csi-resizer/main.go' -> 'cmd/csi-sidecars/resizer_main.go'
 + sed -i.bak 's/func main()/func resizer_main(ctx context.Context)/g' cmd/csi-sidecars/resizer_main.go
 + sed -i.bak '/^var (/,/^)/d' cmd/csi-sidecars/resizer_main.go
 + sed -i.bak '/ctx :=/d' cmd/csi-sidecars/resizer_main.go
@@ -305,7 +464,9 @@ Already on 'master'
 + '[' resizer = attacher ']'
 + [[ resizer == \a\t\t\a\c\h\e\r ]]
 + echo 'Sanity checks'
+Sanity checks
 + echo 'Check that the k8s.io dependencies match'
+Check that the k8s.io dependencies match
 + [[ '' != \t\r\u\e ]]
 ++ cat tmp/gomod-k8sapi.txt
 ++ sort
@@ -344,12 +505,12 @@ Already on 'master'
 + [[ ! -d staging/src/github.com/kubernetes-csi/csi-lib-utils ]]
 + git clone https://github.com/kubernetes-csi/csi-lib-utils staging/src/github.com/kubernetes-csi/csi-lib-utils
 Cloning into 'staging/src/github.com/kubernetes-csi/csi-lib-utils'...
-remote: Enumerating objects: 22799, done.
-remote: Counting objects: 100% (1685/1685), done.
-remote: Compressing objects: 100% (459/459), done.
-remote: Total 22799 (delta 1404), reused 1226 (delta 1226), pack-reused 21114 (from 2)
-Receiving objects: 100% (22799/22799), 22.20 MiB | 35.24 MiB/s, done.
-Resolving deltas: 100% (15235/15235), done.
+remote: Enumerating objects: 25275, done.
+remote: Counting objects: 100% (4593/4593), done.
+remote: Compressing objects: 100% (1838/1838), done.
+remote: Total 25275 (delta 3035), reused 3325 (delta 2677), pack-reused 20682 (from 2)
+Receiving objects: 100% (25275/25275), 26.16 MiB | 35.48 MiB/s, done.
+Resolving deltas: 100% (16378/16378), done.
 + rm -rf staging/src/github.com/kubernetes-csi/csi-lib-utils/.git
 + rm -rf staging/src/github.com/kubernetes-csi/csi-lib-utils/.github
 + rm -rf staging/src/github.com/kubernetes-csi/csi-lib-utils/vendor
@@ -362,12 +523,13 @@ Resolving deltas: 100% (15235/15235), done.
 + go mod tidy
 + go work vendor
 + make build
+./release-tools/verify-go-version.sh "go"
 
 ======================================================
                   WARNING
 
   This projects is tested with Go v1.22.3.
-  Your current Go version is v1.25.
+  Your current Go version is v1.26.
   This may or may not be close enough.
 
   In particular test-gofmt and test-vendor
@@ -375,11 +537,27 @@ Resolving deltas: 100% (15235/15235), done.
   Go.
 ======================================================
 
+mkdir -p bin
+# os_arch_seen captures all of the $os-$arch-$buildx_platform seen for the current binary
+# that we want to build, if we've seen an $os-$arch-$buildx_platform before it means that
+# we don't need to build it again, this is done to avoid building
+# the windows binary multiple times (see the default value of $BUILD_PLATFORMS)
+export os_arch_seen="" && echo '' | tr ';' '\n' | while read -r os arch buildx_platform suffix base_image addon_image; do \
+        os_arch_seen_pre=${os_arch_seen%%$os-$arch-$buildx_platform*}; \
+        if ! [ ${#os_arch_seen_pre} = ${#os_arch_seen} ]; then \
+                continue; \
+        fi; \
+        if ! (set -x; cd ./cmd/csi-sidecars && CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build  -a -ldflags ' -X main.version=83f6d1d49ae9350bc7e9c0c35ce9ac0bb56da876 -extldflags "-static"' -o "/root/csi-sidecars-aio-poc/bin/csi-sidecars$suffix" .); then \
+                echo "Building csi-sidecars for GOOS=$os GOARCH=$arch failed, see error(s) above."; \
+                exit 1; \
+        fi; \
+        os_arch_seen+=";$os-$arch-$buildx_platform"; \
+done
 + cd ./cmd/csi-sidecars
 + CGO_ENABLED=0
 + GOOS=
 + GOARCH=
-+ go build -a -ldflags ' -X main.version=4fc7855b244c71bb2f0968b1363ae849af8dad11 -extldflags "-static"' -o /root/csi-sidecars-aio-poc/bin/csi-sidecars .
++ go build -a -ldflags ' -X main.version=83f6d1d49ae9350bc7e9c0c35ce9ac0bb56da876 -extldflags "-static"' -o /root/csi-sidecars-aio-poc/bin/csi-sidecars .
 + ./bin/csi-sidecars --help
 Usage of ./bin/csi-sidecars:
       --add_dir_header                                    If true, adds the file directory to the header of the log messages
@@ -406,22 +584,21 @@ Usage of ./bin/csi-sidecars:
                                                           AllowUnsafeMalformedObjectDeletion=true|false (ALPHA - default=false)
                                                           AnnotateFsResize=true|false (ALPHA - default=false)
                                                           CBORServingAndStorage=true|false (ALPHA - default=false)
-                                                          ComponentFlagz=true|false (ALPHA - default=false)
-                                                          ComponentStatusz=true|false (ALPHA - default=false)
+                                                          ComponentFlagz=true|false (BETA - default=true)
+                                                          ComponentStatusz=true|false (BETA - default=true)
                                                           ConcurrentWatchObjectDecode=true|false (BETA - default=false)
-                                                          ConstrainedImpersonation=true|false (ALPHA - default=false)
+                                                          ConstrainedImpersonation=true|false (BETA - default=true)
                                                           CoordinatedLeaderElection=true|false (BETA - default=false)
                                                           CrossNamespaceVolumeDataSource=true|false (ALPHA - default=false)
-                                                          DeclarativeValidation=true|false (BETA - default=true)
-                                                          DeclarativeValidationTakeover=true|false (BETA - default=false)
+                                                          DeclarativeValidationBeta=true|false (BETA - default=true)
                                                           DetectCacheInconsistency=true|false (BETA - default=true)
                                                           ListFromCacheSnapshot=true|false (BETA - default=true)
-                                                          MutableCSINodeAllocatableCount=true|false (BETA - default=false)
-                                                          MutatingAdmissionPolicy=true|false (BETA - default=false)
+                                                          ManifestBasedAdmissionControlConfig=true|false (ALPHA - default=false)
+                                                          NativeHistograms=true|false (ALPHA - default=false)
                                                           OpenAPIEnums=true|false (BETA - default=true)
-                                                          RecoverVolumeExpansionFailure=true|false (BETA - default=true)
                                                           ReleaseLeaderElectionOnExit=true|false (ALPHA - default=false)
                                                           RemoteRequestHeaderUID=true|false (BETA - default=true)
+                                                          ShardedListAndWatch=true|false (ALPHA - default=false)
                                                           SizeBasedListCostEstimate=true|false (BETA - default=true)
                                                           StorageVersionAPI=true|false (ALPHA - default=false)
                                                           StorageVersionHash=true|false (BETA - default=true)
@@ -429,8 +606,8 @@ Usage of ./bin/csi-sidecars:
                                                           StructuredAuthenticationConfigurationJWKSMetrics=true|false (BETA - default=true)
                                                           TokenRequestServiceAccountUIDValidation=true|false (BETA - default=true)
                                                           UnauthenticatedHTTP2DOSMitigation=true|false (BETA - default=true)
-                                                          UnknownVersionInteroperabilityProxy=true|false (ALPHA - default=false)
-                                                          WatchCacheInitializationPostStartHook=true|false (BETA - default=false)
+                                                          UnknownVersionInteroperabilityProxy=true|false (BETA - default=true)
+                                                          WatchCacheInitializationPostStartHook=true|false (BETA - default=true)
                                                           WatchList=true|false (BETA - default=true)
       --http-endpoint :8080                               The TCP network address where the HTTP server for diagnostics, including metrics and leader election health check, will listen (example: :8080). The default is empty string, which means the server is disabled. Only one of `--metrics-address` and `--http-endpoint` can be set.
       --kube-api-burst int                                Burst to use while communicating with the kubernetes apiserver. Defaults to 10. (default 10)
@@ -488,21 +665,6 @@ Usage of ./bin/csi-sidecars:
       --version                                           Show version.
       --vmodule pattern=N,...                             comma-separated list of pattern=N settings for file-filtered logging (only works for text log format)
 + go build -a -ldflags ' -X main.version=foo -extldflags "-static"' -o ./bin/csi-attacher ./pkg/attacher/cmd/csi-attacher
-# github.com/kubernetes-csi/csi-sidecars/pkg/attacher/cmd/csi-attacher
-/usr/bin/ld: /tmp/go-link-1501858949/000037.o: in function `_cgo_0adcd145e95b_Cfunc_dlopen':
-/tmp/go-build/cgo-gcc-prolog:92: warning: Using 'dlopen' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
-/usr/bin/ld: /tmp/go-link-1501858949/000008.o: in function `mygetgrouplist':
-/_/GOROOT/src/os/user/getgrouplist_unix.go:15: warning: Using 'getgrouplist' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
-/usr/bin/ld: /tmp/go-link-1501858949/000007.o: in function `mygetgrgid_r':
-/_/GOROOT/src/os/user/cgo_lookup_cgo.go:45: warning: Using 'getgrgid_r' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
-/usr/bin/ld: /tmp/go-link-1501858949/000007.o: in function `mygetgrnam_r':
-/_/GOROOT/src/os/user/cgo_lookup_cgo.go:54: warning: Using 'getgrnam_r' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
-/usr/bin/ld: /tmp/go-link-1501858949/000007.o: in function `mygetpwnam_r':
-/_/GOROOT/src/os/user/cgo_lookup_cgo.go:36: warning: Using 'getpwnam_r' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
-/usr/bin/ld: /tmp/go-link-1501858949/000007.o: in function `mygetpwuid_r':
-/_/GOROOT/src/os/user/cgo_lookup_cgo.go:27: warning: Using 'getpwuid_r' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
-/usr/bin/ld: /tmp/go-link-1501858949/000004.o: in function `_cgo_77133bf98b3a_C2func_getaddrinfo':
-/tmp/go-build/cgo-gcc-prolog:60: warning: Using 'getaddrinfo' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
 + ./bin/csi-attacher --help
 Usage of ./bin/csi-attacher:
   -automaxprocs
@@ -521,20 +683,20 @@ Usage of ./bin/csi-attacher:
         AllowParsingUserUIDFromCertAuth=true|false (BETA - default=true)
         AllowUnsafeMalformedObjectDeletion=true|false (ALPHA - default=false)
         CBORServingAndStorage=true|false (ALPHA - default=false)
-        ComponentFlagz=true|false (ALPHA - default=false)
-        ComponentStatusz=true|false (ALPHA - default=false)
+        ComponentFlagz=true|false (BETA - default=true)
+        ComponentStatusz=true|false (BETA - default=true)
         ConcurrentWatchObjectDecode=true|false (BETA - default=false)
-        ConstrainedImpersonation=true|false (ALPHA - default=false)
+        ConstrainedImpersonation=true|false (BETA - default=true)
         CoordinatedLeaderElection=true|false (BETA - default=false)
-        DeclarativeValidation=true|false (BETA - default=true)
-        DeclarativeValidationTakeover=true|false (BETA - default=false)
+        DeclarativeValidationBeta=true|false (BETA - default=true)
         DetectCacheInconsistency=true|false (BETA - default=true)
         ListFromCacheSnapshot=true|false (BETA - default=true)
-        MutableCSINodeAllocatableCount=true|false (BETA - default=false)
-        MutatingAdmissionPolicy=true|false (BETA - default=false)
+        ManifestBasedAdmissionControlConfig=true|false (ALPHA - default=false)
+        NativeHistograms=true|false (ALPHA - default=false)
         OpenAPIEnums=true|false (BETA - default=true)
         ReleaseLeaderElectionOnExit=true|false (ALPHA - default=false)
         RemoteRequestHeaderUID=true|false (BETA - default=true)
+        ShardedListAndWatch=true|false (ALPHA - default=false)
         SizeBasedListCostEstimate=true|false (BETA - default=true)
         StorageVersionAPI=true|false (ALPHA - default=false)
         StorageVersionHash=true|false (BETA - default=true)
@@ -542,8 +704,8 @@ Usage of ./bin/csi-attacher:
         StructuredAuthenticationConfigurationJWKSMetrics=true|false (BETA - default=true)
         TokenRequestServiceAccountUIDValidation=true|false (BETA - default=true)
         UnauthenticatedHTTP2DOSMitigation=true|false (BETA - default=true)
-        UnknownVersionInteroperabilityProxy=true|false (ALPHA - default=false)
-        WatchCacheInitializationPostStartHook=true|false (BETA - default=false)
+        UnknownVersionInteroperabilityProxy=true|false (BETA - default=true)
+        WatchCacheInitializationPostStartHook=true|false (BETA - default=true)
         WatchList=true|false (BETA - default=true)
   -http-endpoint :8080
         The TCP network address where the HTTP server for diagnostics, including metrics and leader election health check, will listen (example: :8080). The default is empty string, which means the server is disabled. Only one of `--metrics-address` and `--http-endpoint` can be set.
@@ -601,3 +763,7 @@ Usage of ./bin/csi-attacher:
         comma-separated list of pattern=N settings for file-filtered logging (only works for text log format)
   -worker-threads int
         Number of worker threads per sidecar (default 10)
++ echo 'Complete!'
+Complete!
++ echo 'Commit history available at pkg/<sidecar>/.git'
+Commit history available at pkg/<sidecar>/.git

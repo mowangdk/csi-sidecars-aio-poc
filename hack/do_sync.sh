@@ -6,6 +6,17 @@ if [[ $(uname) != "Linux" ]]; then
   exit 1
 fi
 
+if [[ -z ${VIRTUAL_ENV:-} ]]; then
+  echo "This script must run within a virtual env"
+  echo "  python3 -m venv venv && source venv/bin/activate "
+  exit 1
+fi
+
+if ! command -v git-filter-repo >/dev/null; then
+  echo "git-filter-repo is required, installing it..."
+  pip install git-filter-repo
+fi
+
 # Set to true to skip the sanity checks.
 SKIP_SANITY_CHECK="${SKIP_SANITY_CHECK:-}"
 
@@ -18,8 +29,8 @@ cond_exec() {
   echo $@
 }
 
-if [[ ! $(go version) =~ go1.25 ]]; then
-  echo "Install go1.25, please read the README.md"
+if [[ ! $(go version) =~ go1.2[6-9] ]]; then
+  echo "Install go1.26+, please read the README.md"
   exit 1
 fi
 TRASH="trash"
@@ -28,6 +39,12 @@ if ! command -v trash; then
 fi
 
 mkdir -p tmp pkg cmd/csi-sidecars/ staging/src/github.com/kubernetes-csi/
+
+# Initialize the target repo for merged commit history
+if [[ ! -d tmp/csi-sidecars ]]; then
+  mkdir -p tmp/csi-sidecars
+  (cd tmp/csi-sidecars && git init)
+fi
 
 # symlink_from_root_to_hack creates a simlink from a file in project root to hack.
 #
@@ -49,12 +66,35 @@ symlink_from_root_to_hack() {
 for i in attacher,master provisioner,master resizer,master; do
   IFS=',' read SIDECAR SIDECAR_HASH <<<"${i}"
   if [[ ! -d pkg/${SIDECAR} ]]; then
-    git clone --depth 1 https://github.com/kubernetes-csi/external-${SIDECAR} pkg/${SIDECAR}
+    git clone https://github.com/kubernetes-csi/external-${SIDECAR} tmp/external-${SIDECAR}
     (
-      cd pkg/${SIDECAR}
+      cd tmp/external-${SIDECAR}
       git checkout ${SIDECAR_HASH}
       git rev-parse --short HEAD
+
+      # --force is required if we checkout to a different branch.
+      git filter-repo \
+        --commit-callback "
+original_hash = commit.original_id.decode()
+original_message = commit.message.decode()
+new_message = f\"{original_message}\n\nImported-from: external-${SIDECAR}\n\nOriginal-commit-hash: {original_hash}\"
+commit.message = new_message.encode()
+        " \
+        --to-subdirectory-filter pkg/${SIDECAR} --force
     )
+
+    # Merge the rewritten sidecar history into the target repo
+    (
+      cd tmp/csi-sidecars
+      git config user.email "csi-aio-sync@localhost"
+      git config user.name "CSI AIO Sync"
+      git remote add external-${SIDECAR} ../external-${SIDECAR} || true
+      git fetch external-${SIDECAR}
+      git merge external-${SIDECAR}/${SIDECAR_HASH} --allow-unrelated-histories --no-edit
+    )
+
+    # Copy the sidecar files (without .git) for processing
+    cp -a tmp/external-${SIDECAR}/pkg/${SIDECAR} pkg/${SIDECAR}
 
     cat pkg/${SIDECAR}/go.mod | grep "	" | grep -v "indirect" >>tmp/gomod-require.txt
 
@@ -67,7 +107,6 @@ for i in attacher,master provisioner,master resizer,master; do
     # NOTE: the sed command is temporary while provisioner adopts a more recent version of k8s, check #18 for more info.
     cat pkg/${SIDECAR}/go.mod | { grep "replace k8s.io/api =>" || [[ $? == 1 ]]; } >>tmp/gomod-k8sapi.txt
 
-    ${TRASH} pkg/${SIDECAR}/.git
     ${TRASH} pkg/${SIDECAR}/.github
     ${TRASH} pkg/${SIDECAR}/vendor
     ${TRASH} pkg/${SIDECAR}/release-tools
@@ -179,7 +218,7 @@ symlink_from_root_to_hack hack/pkg/attacher/cmd/csi-attacher/config/flags.go
 cat <<EOF >go.mod
 module github.com/kubernetes-csi/csi-sidecars
 
-go 1.23.1
+go 1.26
 
 require (
 EOF
@@ -250,3 +289,6 @@ go build -a -ldflags ' -X main.version=foo -extldflags "-static"' -o ./bin/csi-a
 #   exit 1
 # fi
 # make container GOFLAGS_VENDOR="-mod=vendor" BUILD_PLATFORMS=${CSI_PROW_BUILD_PLATFORMS}
+
+echo "Complete!"
+echo "Merged commit history available at tmp/csi-sidecars/"
