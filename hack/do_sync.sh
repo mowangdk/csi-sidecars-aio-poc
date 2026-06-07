@@ -90,11 +90,11 @@ symlink_from_root_to_hack() {
   # strip hack/ prefix
   file_without_hack="${file#hack/}"
   mkdir -p "$(dirname $file_without_hack)"
-  ln -s $PWD/$file $PWD/$file_without_hack
+  ln -sf $PWD/$file $PWD/$file_without_hack
 }
 
 # loop params: [repository,branch]
-for i in attacher,master provisioner,master resizer,master; do
+for i in attacher,master provisioner,master resizer,master snapshotter,master; do
   IFS=',' read SIDECAR SIDECAR_HASH <<<"${i}"
   if [[ ! -d pkg/${SIDECAR} ]]; then
     git clone https://github.com/kubernetes-csi/external-${SIDECAR} tmp/external-${SIDECAR}
@@ -130,7 +130,7 @@ commit.message = new_message.encode()
     cat pkg/${SIDECAR}/go.mod | grep "	" | grep -v "indirect" >>tmp/gomod-require.txt
 
     # NOTE: the sed command is to keep consistent package relies among different repos.
-    cat pkg/${SIDECAR}/go.mod | { grep "replace " || [[ $? == 1 ]]; } | sed 's/v0.35.0/v0.35.2/g' >>tmp/gomod-replace.txt
+    cat pkg/${SIDECAR}/go.mod | { grep "replace " || [[ $? == 1 ]]; } | sed 's/v0.35.0/v0.35.2/g' | { grep -v "=> ./client" || [[ $? == 1 ]]; } >>tmp/gomod-replace.txt
 
 
     # Checks for drifts in k8s.io/api, drifts in core dependencies are sometimes impossible to solve
@@ -150,6 +150,23 @@ commit.message = new_message.encode()
     ${TRASH} pkg/${SIDECAR}/OWNER_ALIASES
     ${TRASH} pkg/${SIDECAR}/Makefile
 
+    if [ "${SIDECAR}" = "snapshotter" ]; then
+      ${TRASH} pkg/${SIDECAR}/client/.git
+      ${TRASH} pkg/${SIDECAR}/client/go.mod
+      ${TRASH} pkg/${SIDECAR}/client/go.sum
+      ${TRASH} pkg/${SIDECAR}/client/hack
+      ${TRASH} pkg/${SIDECAR}/CHANGELOG
+      ${TRASH} pkg/${SIDECAR}/examples
+      ${TRASH} pkg/${SIDECAR}/deploy
+      ${TRASH} pkg/${SIDECAR}/hack
+      # snapshot-conversion-webhook is kept as an independent binary in cmd/snapshot-conversion-webhook
+      # ${TRASH} pkg/${SIDECAR}/cmd/snapshot-conversion-webhook
+      ${TRASH} pkg/${SIDECAR}/SECURITY_CONTACTS
+      ${TRASH} pkg/${SIDECAR}/code-of-conduct.md
+      ${TRASH} pkg/${SIDECAR}/CONTRIBUTING.md
+      ${TRASH} pkg/${SIDECAR}/OWNERS_ALIASES
+    fi
+
     (
       cd pkg/${SIDECAR}
       find . -type f -exec grep -q "github.com/kubernetes-csi/external-${SIDECAR}/" --files-with-matches {} \; -print
@@ -157,8 +174,14 @@ commit.message = new_message.encode()
 
     (
       cd pkg/${SIDECAR}
-      find . -type f -exec grep -q "github.com/kubernetes-csi/external-${SIDECAR}/" --files-with-matches {} \; -print |
-        xargs sed -E -i".bak" "s%github.com/kubernetes-csi/external-${SIDECAR}/(v[0-9]+/)?%github.com/kubernetes-csi/csi-sidecars/pkg/${SIDECAR}/%g"
+      if [ "${SIDECAR}" = "snapshotter" ]; then
+        find . -type f -exec grep -q "github.com/kubernetes-csi/external-${SIDECAR}/" --files-with-matches {} \; -print |
+          xargs -r sed -E -i".bak" -e "s%github.com/kubernetes-csi/external-snapshotter/v8/%github.com/kubernetes-csi/csi-sidecars/pkg/snapshotter/%g" \
+                                -e "s%github.com/kubernetes-csi/external-snapshotter/client/v8/%github.com/kubernetes-csi/csi-sidecars/pkg/snapshotter/client/%g"
+      else
+        find . -type f -exec grep -q "github.com/kubernetes-csi/external-${SIDECAR}/" --files-with-matches {} \; -print |
+          xargs -r sed -E -i".bak" "s%github.com/kubernetes-csi/external-${SIDECAR}/(v[0-9]+/)?%github.com/kubernetes-csi/csi-sidecars/pkg/${SIDECAR}/%g"
+      fi
     )
   fi
 
@@ -168,7 +191,7 @@ commit.message = new_message.encode()
   # - A main() function - CSI repositories no longer need them.
   # - Flags, logging code
   # may have code that
-  for FILE in pkg/${SIDECAR}/cmd/csi-${SIDECAR}/*.go; do
+  for FILE in $(find pkg/${SIDECAR}/cmd/csi-${SIDECAR}/ -maxdepth 1 -name '*.go' ! -name '*_test.go'); do
     NEW_FILE="cmd/csi-sidecars/${SIDECAR}_$(basename ${FILE})"
     cp -v -- "${FILE}" "${NEW_FILE}"
     # Rename main()
@@ -202,6 +225,9 @@ commit.message = new_message.encode()
     sed -i".bak" '/standardflags.AddAutomaxprocs/d' "${NEW_FILE}"
     sed -i".bak" '/standardflags.RegisterCommonFlags/d' "${NEW_FILE}"
 
+    # Standalone var version (outside var() blocks) conflicts with main.go
+    sed -i".bak" '/^var version/d' "${NEW_FILE}"
+
     # Dead imports
     sed -i".bak" '/goflag/d' "${NEW_FILE}"
     sed -i".bak" '/flag"/d' "${NEW_FILE}"
@@ -213,6 +239,41 @@ commit.message = new_message.encode()
     fi
     if [ "${SIDECAR}" = "attacher" ]; then
       sed -i".bak" '/strings/d' "${NEW_FILE}"
+      # Remove flag registration that uses flag.CommandLine (handled by main.go via RegisterAttacherFlagsWithPrefix)
+      sed -i".bak" '/RegisterAttacherFlags.*flag.CommandLine/d' "${NEW_FILE}"
+      sed -i".bak" '/^var attacherConfiguration/d' "${NEW_FILE}"
+      # Remove local var re-declarations that shadow globals set by copyFlagsFromConfigToGlobalVars
+      sed -i".bak" '/attacherConfiguration\./d' "${NEW_FILE}"
+      sed -i".bak" '/attacherconfiguration "/d' "${NEW_FILE}"
+      # Replace standardflags.Configuration field accesses with global vars (order matters: longest match first)
+      sed -i".bak" 's/standardflags\.Configuration\.ShowVersion/*showVersion/g' "${NEW_FILE}"
+      sed -i".bak" 's/standardflags\.Configuration\.MetricsAddress/*metricsAddress/g' "${NEW_FILE}"
+      sed -i".bak" 's/standardflags\.Configuration\.HttpEndpoint/*httpEndpoint/g' "${NEW_FILE}"
+      sed -i".bak" 's/standardflags\.Configuration\.KubeConfig/*kubeconfig/g' "${NEW_FILE}"
+      sed -i".bak" 's/standardflags\.Configuration\.CSIAddress/*csiAddress/g' "${NEW_FILE}"
+      sed -i".bak" 's/standardflags\.Configuration\.MetricsPath/*metricsPath/g' "${NEW_FILE}"
+      # Remove only the standardflags.RegisterCommonFlags import alias line if present,
+      # but keep the standardflags package import and bare standardflags.Configuration
+      # usages (passed to libconfig.BuildConfig and leaderelection.RunWithLeaderElection).
+      # The field accesses (e.g. standardflags.Configuration.ShowVersion) were already
+      # replaced with global vars above.
+    fi
+    if [ "${SIDECAR}" = "provisioner" ]; then
+      # Remove pre-Go 1.21 max() helper that shadows the builtin
+      sed -i".bak" '/^\/\/ max returns/,/^}/d' "${NEW_FILE}"
+    fi
+    if [ "${SIDECAR}" = "snapshotter" ]; then
+      # NOTE: unlike other sidecars, do NOT remove strings import for snapshotter
+      # because it's used in the leaderelection.RunWithLeaderElection call
+      # Restore the prefix var that was inside var(...) block (stripped by sed)
+      sed -i".bak" '/^func snapshotter_main/i\var snapshotterPrefix = "external-snapshotter-leader"' "${NEW_FILE}"
+      sed -i".bak" 's/\bprefix\b/snapshotterPrefix/g' "${NEW_FILE}"
+      # Rename colliding variables to avoid conflicts with other sidecar globals
+      sed -i".bak" 's/\bthreads\b/snapshotterThreads/g' "${NEW_FILE}"
+      sed -i".bak" 's/\bextraCreateMetadata\b/snapshotterExtraCreateMetadata/g' "${NEW_FILE}"
+      sed -i".bak" 's/\benableNodeDeployment\b/snapshotterEnableNodeDeployment/g' "${NEW_FILE}"
+      sed -i".bak" 's/\bcsiTimeout\b/snapshotterCSITimeout/g' "${NEW_FILE}"
+      sed -i".bak" 's/\bbuildConfig\b/snapshotterBuildConfig/g' "${NEW_FILE}"
     fi
   done
 
@@ -226,6 +287,22 @@ commit.message = new_message.encode()
     symlink_from_root_to_hack hack/pkg/attacher/cmd/csi-attacher/main.go
   fi
 done
+
+# Copy snapshot-controller entrypoint into its own independent cmd/ directory.
+# Unlike the sidecar entrypoints which merge into cmd/csi-sidecars/main.go,
+# snapshot-controller keeps its own main() as a separate binary.
+# NOTE: Import path replacement for both the main module and the client module
+# is already handled by the sed block inside pkg/snapshotter/ above, which
+# recursively covers cmd/snapshot-controller/*.go.
+mkdir -p cmd/snapshot-controller
+cp -v pkg/snapshotter/cmd/snapshot-controller/*.go cmd/snapshot-controller/
+
+# Copy snapshot-conversion-webhook entrypoint into its own independent cmd/ directory.
+# Like snapshot-controller, the webhook keeps its own main() as a separate binary.
+# NOTE: Import path replacement is already handled by the sed block inside
+# pkg/snapshotter/ above.
+mkdir -p cmd/snapshot-conversion-webhook
+cp -v pkg/snapshotter/cmd/snapshot-conversion-webhook/*.go cmd/snapshot-conversion-webhook/
 
 # Sanity checks
 echo "Sanity checks"
@@ -263,13 +340,13 @@ go mod tidy
 
 # The makefile
 cat <<EOF >Makefile
-CMDS=csi-sidecars
+CMDS=csi-sidecars snapshot-controller snapshot-conversion-webhook
 all: build
 
 include release-tools/build.make
 EOF
 
-# Clone csi-libe utils into the staging/ directory and add an override to use the local copy in go.mod
+# Clone csi-lib-utils into the staging/ directory and add an override to use the local copy in go.mod
 csi_lib_utils=staging/src/github.com/kubernetes-csi/csi-lib-utils
 if [[ ! -d ${csi_lib_utils} ]]; then
   git clone https://github.com/kubernetes-csi/csi-lib-utils ${csi_lib_utils}
@@ -278,10 +355,10 @@ if [[ ! -d ${csi_lib_utils} ]]; then
   ${TRASH} ${csi_lib_utils}/.github
   ${TRASH} ${csi_lib_utils}/vendor
   ${TRASH} ${csi_lib_utils}/release-tools
+fi
 
-  if ! grep -q "./staging/src/github.com/kubernetes-csi/csi-lib-utils" go.mod; then
-    echo "replace github.com/kubernetes-csi/csi-lib-utils => ./staging/src/github.com/kubernetes-csi/csi-lib-utils" >>go.mod
-  fi
+if ! grep -q "./staging/src/github.com/kubernetes-csi/csi-lib-utils" go.mod; then
+  echo "replace github.com/kubernetes-csi/csi-lib-utils => ./staging/src/github.com/kubernetes-csi/csi-lib-utils" >>go.mod
 fi
 
 # go.work setup
@@ -298,6 +375,12 @@ make build
 # checkpoint for individual sidecar refactor: test that we can build attacher
 go build -a -ldflags ' -X main.version=foo -extldflags "-static"' -o ./bin/csi-attacher ./pkg/attacher/cmd/csi-attacher
 ./bin/csi-attacher --help || true
+
+# checkpoint: test that snapshot-controller builds as a standalone binary
+./bin/snapshot-controller --help || true
+
+# checkpoint: test that snapshot-conversion-webhook builds as a standalone binary
+./bin/snapshot-conversion-webhook --help || true
 
 # cat <<'EOF' >Dockerfile
 # FROM gcr.io/distroless/static:latest
