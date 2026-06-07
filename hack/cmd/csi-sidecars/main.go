@@ -67,6 +67,17 @@ var (
 	maxGRPCLogLength            *int
 	maxEntries                  *int
 	reconcileSync               *time.Duration
+
+	// Snapshotter specific
+	snapshotNamePrefix                *string
+	snapshotNameUUIDLength            *int
+	snapshotterCSITimeout            *time.Duration
+	snapshotterThreads               *int
+	groupSnapshotNamePrefix           *string
+	groupSnapshotNameUUIDLength       *int
+	snapshotterEnableNodeDeployment  *bool
+	snapshotterExtraCreateMetadata   *bool
+
 )
 
 var (
@@ -145,6 +156,17 @@ func copyFlagsFromConfigToGlobalVars() {
 	// TODO: define if timeout should be global or not
 	timeout = &config.Configuration.AttacherConfiguration.Timeout
 	operationTimeout = &config.Configuration.AttacherConfiguration.Timeout
+
+	// Snapshotter-specific flags
+	snapshotNamePrefix = &config.Configuration.SnapshotterConfiguration.SnapshotNamePrefix
+	snapshotNameUUIDLength = &config.Configuration.SnapshotterConfiguration.SnapshotNameUUIDLength
+	snapshotterCSITimeout = &config.Configuration.SnapshotterConfiguration.CSITimeout
+	snapshotterThreads = &config.Configuration.SnapshotterConfiguration.Threads
+	snapshotterEnableNodeDeployment = &config.Configuration.SnapshotterConfiguration.EnableNodeDeployment
+	groupSnapshotNamePrefix = &config.Configuration.SnapshotterConfiguration.GroupSnapshotNamePrefix
+	groupSnapshotNameUUIDLength = &config.Configuration.SnapshotterConfiguration.GroupSnapshotNameUUIDLength
+	snapshotterExtraCreateMetadata = &config.Configuration.SnapshotterConfiguration.ExtraCreateMetadata
+
 }
 
 func main() {
@@ -155,6 +177,7 @@ func main() {
 	standardflags.RegisterCommonFlags(goflag.CommandLine)
 	config.RegisterAIOFlags(goflag.CommandLine)
 	attacherconfig.RegisterAttacherFlagsWithPrefix(goflag.CommandLine, &config.Configuration.AttacherConfiguration)
+	config.RegisterSnapshotterFlagsWithPrefix(goflag.CommandLine, &config.Configuration.SnapshotterConfiguration)
 	standardflags.AddAutomaxprocs(klog.Infof)
 	c := logsapi.NewLoggingConfiguration()
 	logsapi.AddFlags(c, flag.CommandLine)
@@ -208,7 +231,12 @@ func main() {
 			return fmt.Errorf("Resizer stopped")
 		})
 	}
-
+	if _, ok := controllersToEnable["snapshotter"]; ok {
+		errs.Go(func() error {
+			snapshotter_main(ctx)
+			return fmt.Errorf("Snapshotter stopped")
+		})
+	}
 	if err := errs.Wait(); err != nil {
 		panic(err)
 	}
