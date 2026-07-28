@@ -1,0 +1,18 @@
+# Mark auto-generated content so GitHub collapses it in PR reviews and excludes
+# it from language statistics (linguist-generated).
+#
+# NOTE: The assembly area (pkg/, staging/, cmd/) is produced by
+# tools/scripts/sync.sh and is NOT committed to version control, so those paths
+# normally never appear in a diff. The entries below are defensive: if a
+# generated artifact is ever committed, it stays collapsed.
+
+# The reference sync log is tracked (linked from README) and is fully generated.
+tools/sync.log linguist-generated=true
+
+# Assembly area / synced upstream code (defensive; usually untracked).
+pkg/**                              linguist-generated=true
+staging/**                          linguist-generated=true
+cmd/csi-sidecars/*_main.go          linguist-generated=true
+cmd/csi-sidecars/*_csi-*.go         linguist-generated=true
+cmd/snapshot-controller/**          linguist-generated=true
+cmd/snapshot-conversion-webhook/**  linguist-generated=true
