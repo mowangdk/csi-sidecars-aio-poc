@@ -2,6 +2,7 @@ package main
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -84,82 +85,87 @@ func TestParseControllers(t *testing.T) {
 	}
 }
 
-// knownControllers mirrors the set of controller names main() actually acts on
-// (the if _, ok := controllersToEnable[...] branches). It is defined here rather
-// than imported because main.go hardcodes these names inline; keeping the list
-// next to the test documents the contract the test guards.
-var knownControllers = []string{"attacher", "provisioner", "resizer", "snapshotter"}
-
-// enabledKnownControllers returns the subset of parsed controller names that
-// main() would actually start — i.e. the intersection of the requested set with
-// the known controllers. Unknown names are dropped, which is exactly how main()
-// treats them (it only has if-branches for the known names).
-func enabledKnownControllers(controllersFlag string) map[string]bool {
-	requested := parseControllers(controllersFlag)
-	enabled := map[string]bool{}
-	for _, name := range knownControllers {
-		if requested[name] {
-			enabled[name] = true
-		}
-	}
-	return enabled
-}
-
-// TestControllersUnknownValuesBehavePredictably pins the SPEC S3 requirement
-// that unknown/empty --controllers values behave predictably: an unknown name
-// starts no controller, and mixing an unknown name with a known one starts only
-// the known one. This guards the currently-implicit behavior in main() where
-// unknown names silently match no if-branch.
-func TestControllersUnknownValuesBehavePredictably(t *testing.T) {
+// TestValidateControllers guards the --controllers validation: an empty
+// selection or any unknown name (typos, wrong case) must fail loudly instead
+// of starting no controller and silently exiting.
+func TestValidateControllers(t *testing.T) {
 	tests := []struct {
-		name string
-		in   string
-		want map[string]bool
+		name    string
+		in      map[string]bool
+		wantErr string
 	}{
 		{
-			name: "empty value enables nothing",
-			in:   "",
-			want: map[string]bool{},
+			name:    "empty selection is rejected",
+			in:      map[string]bool{},
+			wantErr: "no controllers enabled",
 		},
 		{
-			name: "single unknown value enables nothing",
-			in:   "foo",
-			want: map[string]bool{},
+			name:    "single unknown name is rejected",
+			in:      map[string]bool{"foo": true},
+			wantErr: "unknown controllers: foo",
 		},
 		{
-			name: "only unknown values enable nothing",
-			in:   "foo,bar,baz",
-			want: map[string]bool{},
+			name:    "unknown mixed with known is rejected",
+			in:      map[string]bool{"foo": true, "attacher": true},
+			wantErr: "unknown controllers: foo",
 		},
 		{
-			name: "unknown mixed with known enables only the known",
-			in:   "foo,attacher,bar",
-			want: map[string]bool{"attacher": true},
+			name:    "unknown names are sorted in the error",
+			in:      map[string]bool{"baz": true, "bar": true},
+			wantErr: "unknown controllers: bar, baz",
 		},
 		{
-			name: "all known enable all",
-			in:   "attacher,provisioner,resizer,snapshotter",
-			want: map[string]bool{
+			name:    "case-sensitive: Attacher is not the known attacher",
+			in:      map[string]bool{"Attacher": true},
+			wantErr: "unknown controllers: Attacher",
+		},
+		{
+			name: "single known name passes",
+			in:   map[string]bool{"attacher": true},
+		},
+		{
+			name: "all known names pass",
+			in: map[string]bool{
 				"attacher":    true,
 				"provisioner": true,
 				"resizer":     true,
 				"snapshotter": true,
 			},
 		},
-		{
-			name: "case-sensitive: Attacher is not the known attacher",
-			in:   "Attacher",
-			want: map[string]bool{},
-		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := enabledKnownControllers(tc.in)
-			if !reflect.DeepEqual(got, tc.want) {
-				t.Errorf("enabledKnownControllers(%q) = %v, want %v", tc.in, got, tc.want)
+			err := validateControllers(tc.in)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Errorf("validateControllers(%v) = %v, want nil", tc.in, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("validateControllers(%v) = nil, want error containing %q", tc.in, tc.wantErr)
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("validateControllers(%v) error = %q, want it to contain %q", tc.in, err.Error(), tc.wantErr)
 			}
 		})
+	}
+}
+
+// TestKnownControllersMatchesMainBranches keeps the knownControllers set in
+// sync with the if-branches in main(): every known name must have a branch and
+// vice versa, so adding a controller cannot silently skip validation or
+// dispatch.
+func TestKnownControllersMatchesMainBranches(t *testing.T) {
+	want := []string{"attacher", "provisioner", "resizer", "snapshotter"}
+	if len(knownControllers) != len(want) {
+		t.Fatalf("knownControllers has %d entries, want %d (%v)", len(knownControllers), len(want), want)
+	}
+	for _, name := range want {
+		if !knownControllers[name] {
+			t.Errorf("knownControllers is missing %q", name)
+		}
 	}
 }
 

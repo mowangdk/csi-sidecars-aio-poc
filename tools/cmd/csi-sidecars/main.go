@@ -20,6 +20,7 @@ import (
 	"context"
 	goflag "flag"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -185,6 +186,44 @@ func parseControllers(s string) map[string]bool {
 	return enabled
 }
 
+// knownControllers is the set of controller names main() can start, i.e. the
+// valid values for --controllers.
+var knownControllers = map[string]bool{
+	"attacher":    true,
+	"provisioner": true,
+	"resizer":     true,
+	"snapshotter": true,
+}
+
+func knownControllerNames() []string {
+	names := make([]string, 0, len(knownControllers))
+	for name := range knownControllers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// validateControllers rejects an empty selection and names main() cannot start,
+// so a typo or a missing --controllers fails loudly instead of running a
+// process that starts no controller and silently exits.
+func validateControllers(enabled map[string]bool) error {
+	if len(enabled) == 0 {
+		return fmt.Errorf("no controllers enabled, --controllers must list at least one of: %s", strings.Join(knownControllerNames(), ", "))
+	}
+	var unknown []string
+	for name := range enabled {
+		if !knownControllers[name] {
+			unknown = append(unknown, name)
+		}
+	}
+	if len(unknown) > 0 {
+		sort.Strings(unknown)
+		return fmt.Errorf("unknown controllers: %s, valid values are: %s", strings.Join(unknown, ", "), strings.Join(knownControllerNames(), ", "))
+	}
+	return nil
+}
+
 func main() {
 	flag.Var(utilflag.NewMapStringBool(&featureGates), "feature-gates", "A set of key=value pairs that describe feature gates for alpha/experimental features. "+
 		"Options are:\n"+strings.Join(utilfeature.DefaultFeatureGate.KnownFeatures(), "\n"))
@@ -224,6 +263,9 @@ func main() {
 	errs, ctx := errgroup.WithContext(context.Background())
 
 	controllersToEnable := parseControllers(config.Configuration.Controllers)
+	if err := validateControllers(controllersToEnable); err != nil {
+		klog.Fatal(err)
+	}
 
 	// TODO: Get main from each sidecar to return an error so we can handle it here
 	if _, ok := controllersToEnable["attacher"]; ok {
