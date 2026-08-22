@@ -270,6 +270,21 @@ commit.message = new_message.encode()
 
     if [ "${SIDECAR}" = "resizer" ]; then
       sed -i".bak" '/strings/d' "${NEW_FILE}"
+      # Upstream external-resizer added dedicated --resize-timeout/--modify-timeout
+      # flags plus a resolveOperationTimeouts() helper that inspects
+      # flag.CommandLine (stdlib flag) to decide whether an explicitly-set
+      # --timeout overrides them. The AIO owns flag parsing (pflag) and exposes
+      # the two timeouts as resizer-prefixed flags wired into global vars
+      # (resizeTimeout/modifyTimeout) by copyFlagsFromConfigToGlobalVars, so the
+      # helper and its flag.CommandLine dependency don't apply here. Drop the
+      # helper definition and consume the globals directly at the call site.
+      #
+      # Remove the resolveOperationTimeouts helper (its doc comment through the
+      # closing brace of the function).
+      sed -i".bak" '/^\/\/ resolveOperationTimeouts /,/^}/d' "${NEW_FILE}"
+      # Replace the call to the (now removed) helper with a direct read of the
+      # resizer timeout globals. The upstream call spans two lines.
+      sed -i".bak" '/effectiveResizeTimeout, effectiveModifyTimeout := resolveOperationTimeouts(/{N;s/.*/\teffectiveResizeTimeout, effectiveModifyTimeout := *resizeTimeout, *modifyTimeout/;}' "${NEW_FILE}"
     fi
     if [ "${SIDECAR}" = "attacher" ]; then
       sed -i".bak" '/strings/d' "${NEW_FILE}"

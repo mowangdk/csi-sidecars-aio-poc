@@ -52,6 +52,8 @@ var (
 	workers                     *int
 	timeout                     *time.Duration
 	operationTimeout            *time.Duration
+	resizeTimeout               *time.Duration
+	modifyTimeout               *time.Duration
 	retryIntervalStart          *time.Duration
 	retryIntervalMax            *time.Duration
 	enableLeaderElection        *bool
@@ -157,6 +159,10 @@ func copyFlagsFromConfigToGlobalVars() {
 	// TODO: define if timeout should be global or not
 	timeout = &config.Configuration.AttacherConfiguration.Timeout
 	operationTimeout = &config.Configuration.AttacherConfiguration.Timeout
+
+	// Resizer-specific per-call timeouts (upstream --resize-timeout/--modify-timeout).
+	resizeTimeout = &config.Configuration.ResizeTimeout
+	modifyTimeout = &config.Configuration.ModifyTimeout
 
 	// Snapshotter-specific flags
 	snapshotNamePrefix = &config.Configuration.SnapshotterConfiguration.SnapshotNamePrefix
