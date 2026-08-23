@@ -26,6 +26,40 @@ jobs:
         python3 -m venv .venv && source .venv/bin/activate
         ./tools/scripts/sync.sh
 
+  unit:
+    runs-on: [ubuntu-latest]
+    strategy:
+      matrix:
+        go: ["1.26.5"]
+    steps:
+    - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
+    - uses: actions/setup-go@v5
+      with:
+        go-version: ${{ matrix.go }}
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.13"
+    - run: |
+        echo "GOPATH=$(go env GOPATH)" >> $GITHUB_ENV
+    - run: go version
+    - run: ./tools/scripts/cleanup.sh
+    # Assemble the tree so the hand-maintained tools/ tests (symlinked into
+    # cmd/) build against the generated go.mod/go.work.
+    - run: |
+        python3 -m venv .venv && source .venv/bin/activate
+        ./tools/scripts/sync.sh
+    # Run go test over the hand-maintained sources only. These are assembled
+    # into cmd/csi-sidecars (AIO main + config) and pkg/attacher/.../config via
+    # symlinks from tools/, so they compile with their generated siblings
+    # present. We scope the run to these packages on purpose: the broader
+    # `make test-go` also pulls in synced upstream tests (e.g. gomock-based
+    # attacher/snapshotter tests) whose vendored deps don't survive the sync
+    # import rewrite. Those are covered by the upstream projects' own CI.
+    - run: |
+        go test ./cmd/csi-sidecars/... ./pkg/attacher/cmd/csi-attacher/config/...
+    - run: |
+        go vet ./cmd/csi-sidecars/... ./pkg/attacher/cmd/csi-attacher/config/...
+
   e2e-hostpath:
     runs-on: [ubuntu-latest]
     strategy:
