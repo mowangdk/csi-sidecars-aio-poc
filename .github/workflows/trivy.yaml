@@ -15,10 +15,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
 
-      - name: Parse go version from release-tools/prow.sh
+      - name: Parse go version from .prow.sh
         run: |
-          GO_VERSION=$(cat release-tools/prow.sh | grep "configvar CSI_PROW_GO_VERSION_BUILD" | awk '{print $3}' | sed 's/"//g')
-          echo "Using go from release-tools: $GO_VERSION"
+          GO_VERSION=$(cat .prow.sh | grep "CSI_PROW_GO_VERSION_BUILD=" | head -1 | sed -E 's/.*CSI_PROW_GO_VERSION_BUILD="?([0-9.]+)"?.*/\1/')
+          echo "Using go: $GO_VERSION"
           echo "$GO_VERSION" >> '.go-version'
 
       - name: Install go
