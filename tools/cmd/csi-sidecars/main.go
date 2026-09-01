@@ -26,11 +26,11 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	logsapi "k8s.io/component-base/logs/api/v1"
 	"github.com/kubernetes-csi/csi-lib-utils/standardflags"
 	"github.com/kubernetes-csi/csi-sidecars/cmd/csi-sidecars/config"
 	attacherconfig "github.com/kubernetes-csi/csi-sidecars/pkg/attacher/cmd/csi-attacher/config"
 	flag "github.com/spf13/pflag"
+	logsapi "k8s.io/component-base/logs/api/v1"
 	"sigs.k8s.io/sig-storage-lib-external-provisioner/v13/controller"
 
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
@@ -72,15 +72,14 @@ var (
 	reconcileSync               *time.Duration
 
 	// Snapshotter specific
-	snapshotNamePrefix                *string
-	snapshotNameUUIDLength            *int
-	snapshotterCSITimeout            *time.Duration
-	snapshotterThreads               *int
-	groupSnapshotNamePrefix           *string
-	groupSnapshotNameUUIDLength       *int
-	snapshotterEnableNodeDeployment  *bool
-	snapshotterExtraCreateMetadata   *bool
-
+	snapshotNamePrefix              *string
+	snapshotNameUUIDLength          *int
+	snapshotterCSITimeout           *time.Duration
+	snapshotterThreads              *int
+	groupSnapshotNamePrefix         *string
+	groupSnapshotNameUUIDLength     *int
+	snapshotterEnableNodeDeployment *bool
+	snapshotterExtraCreateMetadata  *bool
 )
 
 var (

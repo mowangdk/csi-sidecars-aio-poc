@@ -209,10 +209,12 @@ commit.message = new_message.encode()
     (
       cd pkg/${SIDECAR}
       if [ "${SIDECAR}" = "snapshotter" ]; then
+        # shellcheck disable=SC2038 # upstream Go sources have no whitespace/special chars in their paths
         find . -type f -exec grep -q "github.com/kubernetes-csi/external-${SIDECAR}/" --files-with-matches {} \; -print |
           xargs -r sed -E -i".bak" -e "s%github.com/kubernetes-csi/external-snapshotter/v8/%github.com/kubernetes-csi/csi-sidecars/pkg/snapshotter/%g" \
                                 -e "s%github.com/kubernetes-csi/external-snapshotter/client/v8/%github.com/kubernetes-csi/csi-sidecars/pkg/snapshotter/client/%g"
       else
+        # shellcheck disable=SC2038 # upstream Go sources have no whitespace/special chars in their paths
         find . -type f -exec grep -q "github.com/kubernetes-csi/external-${SIDECAR}/" --files-with-matches {} \; -print |
           xargs -r sed -E -i".bak" "s%github.com/kubernetes-csi/external-${SIDECAR}/(v[0-9]+/)?%github.com/kubernetes-csi/csi-sidecars/pkg/${SIDECAR}/%g"
       fi
@@ -225,6 +227,7 @@ commit.message = new_message.encode()
   # - A main() function - CSI repositories no longer need them.
   # - Flags, logging code
   # may have code that
+  # shellcheck disable=SC2044 # entrypoint filenames are plain *.go, no whitespace/globbing risk
   for FILE in $(find pkg/${SIDECAR}/cmd/csi-${SIDECAR}/ -maxdepth 1 -name '*.go' ! -name '*_test.go'); do
     NEW_FILE="cmd/csi-sidecars/${SIDECAR}_$(basename ${FILE})"
     cp -v -- "${FILE}" "${NEW_FILE}"
