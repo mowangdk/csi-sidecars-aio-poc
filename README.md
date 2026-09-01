@@ -1,23 +1,5 @@
 # CSI Sidecars Monorepo
 
-[KEP-4958: CSI Sidecars All in one](https://github.com/kubernetes/enhancements/pull/5153) proposes combining the location
-of the source code of the CSI sidecars in a monorepo. Instead of just putting
-the code repositories together, the program entries of all sidecars are
-consolidated into a single artifact (binary and container image), similar to
-how `kube-controller-manager` operates. Among the benefits are:
-
-- Improve the CSI sidecar release process by reducing the number of components released.
-- Decrease the maintenance tasks the SIG Storage community maintainers do to maintain the sidecars.
-- Propagate changes in common libraries used by CSI Sidecars immediately instead of through additional PRs.
-- Reduce the number of components CSI Driver authors and cluster administrators need to keep up to date in k8s clusters.
-
-As a side effect we also:
-
-- Reduce the memory usage/API server calls done by the CSI Sidecars through the usage of a shared informer.
-- Reduce the cluster resource requirements needed to run the CSI Sidecars.
-
-## What is kubernetes-csi
-
 The [Container Storage Interface (CSI)](https://kubernetes-csi.github.io/docs/)
 is the standard for exposing storage systems to containerized workloads on
 Kubernetes. Storage vendors implement the CSI specification in a *CSI driver*;
@@ -39,8 +21,25 @@ components maintained by the SIG Storage community in the
 
 Because every CSI driver ships most of these components alongside its own
 driver image, the common components multiply the release, update and resource
-cost across the ecosystem — which is what [KEP-4958](https://github.com/kubernetes/enhancements/pull/5153)
-addresses by consolidating them into this monorepo. See the KEP for the full
+cost across the ecosystem.
+[KEP-4958: CSI Sidecars All in one](https://github.com/kubernetes/enhancements/pull/5153)
+addresses this by combining the source code of the CSI sidecars in a monorepo.
+Instead of just putting the code repositories together, the program entries of
+all sidecars are consolidated into a single artifact (binary and container
+image), similar to how `kube-controller-manager` operates. Among the benefits
+are:
+
+- Improve the CSI sidecar release process by reducing the number of components released.
+- Decrease the maintenance tasks the SIG Storage community maintainers do to maintain the sidecars.
+- Propagate changes in common libraries used by CSI Sidecars immediately instead of through additional PRs.
+- Reduce the number of components CSI Driver authors and cluster administrators need to keep up to date in k8s clusters.
+
+As a side effect we also:
+
+- Reduce the memory usage/API server calls done by the CSI Sidecars through the usage of a shared informer.
+- Reduce the cluster resource requirements needed to run the CSI Sidecars.
+
+See the [KEP](https://github.com/kubernetes/enhancements/pull/5153) for the full
 motivation, quantified benefits and risk analysis.
 
 ## Design overview
