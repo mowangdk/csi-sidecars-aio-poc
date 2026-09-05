@@ -1,4 +1,19 @@
 #!/bin/bash
+
+# Copyright 2026 The Kubernetes Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 set -euxo pipefail
 
 if [[ $(uname) != "Linux" ]]; then
@@ -362,6 +377,25 @@ mkdir -p cmd/snapshot-conversion-webhook
 cp -v pkg/snapshotter/cmd/snapshot-conversion-webhook/*.go cmd/snapshot-conversion-webhook/
 for FILE in cmd/snapshot-conversion-webhook/*.go; do
   add_generation_marker "${FILE}" "external-snapshotter"
+done
+
+# Per-cmd Dockerfiles: build.make's container-% target uses ./cmd/<name>/Dockerfile
+# when present and otherwise falls back to the root Dockerfile, which hardcodes
+# the csi-sidecars binary and entrypoint. Without these, snapshot-controller and
+# snapshot-conversion-webhook images would ship the wrong binary.
+# The `binary` ARG is required by release-tools/cloudbuild.yaml: push-multiarch-%
+# passes --build-arg binary=./bin/<cmd><arch-suffix>, so the COPY must consume it
+# or non-amd64 images would silently embed the host-arch binary. \${binary} is
+# escaped because this heredoc is unquoted (${CMD} must expand, ${binary} must not).
+for CMD in snapshot-controller snapshot-conversion-webhook; do
+  cat <<EOF >cmd/${CMD}/Dockerfile
+FROM gcr.io/distroless/static:latest
+LABEL maintainers="Kubernetes Authors"
+LABEL description="${CMD}"
+ARG binary=./bin/${CMD}
+COPY \${binary} /${CMD}
+ENTRYPOINT ["/${CMD}"]
+EOF
 done
 
 # The sed -i".bak" rewrites above leave backup files behind in the generated
