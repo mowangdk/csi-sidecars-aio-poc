@@ -23,15 +23,20 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
 
       - name: Parse go version from .prow.sh
+        id: go-version
         run: |
-          GO_VERSION=$(cat .prow.sh | grep "CSI_PROW_GO_VERSION_BUILD=" | head -1 | sed -E 's/.*CSI_PROW_GO_VERSION_BUILD="?([0-9.]+)"?.*/\1/')
+          GO_VERSION=$(sed -n -E 's/^export CSI_PROW_GO_VERSION_BUILD="?([0-9.]+)"?.*$/\1/p' .prow.sh)
+          if [ -z "$GO_VERSION" ]; then
+            echo "CSI_PROW_GO_VERSION_BUILD not found in .prow.sh" >&2
+            exit 1
+          fi
           echo "Using go: $GO_VERSION"
-          echo "$GO_VERSION" >> '.go-version'
+          echo "go=$GO_VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Install go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: .go-version
+          go-version: ${{ steps.go-version.outputs.go }}
 
       - name: Setup python
         uses: actions/setup-python@v5
@@ -46,10 +51,10 @@ jobs:
           ./tools/scripts/sync.sh
 
       - name: Build images from Dockerfile
-        run: |
-          make container-csi-sidecars
-          make container-snapshot-controller
-          make container-snapshot-conversion-webhook
+        # `make container` builds every cmd in the Makefile's CMDS list
+        # (kept current by sync.sh); the three scans below stay in one job
+        # so they share the trivy DB downloaded by the first scan.
+        run: make container
 
       - name: Run Trivy vulnerability scanner on csi-sidecars image
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
