@@ -8,9 +8,9 @@ jobs:
   # verify runs the code-quality gates that upstream kubernetes-csi expects
   # (gofmt, boilerplate license headers, shellcheck). These are scoped
   # to the hand-maintained source of truth under tools/ and to the shell
-  # scripts we own; the generated assembly area (cmd/, pkg/, staging/) mirrors
-  # upstream code and is covered by each upstream project's own CI, so we do
-  # NOT re-verify it here (its formatting/boilerplate conventions are theirs).
+  # scripts we own. This lint job does not cover the generated assembly area
+  # (cmd/, pkg/, staging/). Upstream CI does not validate our transformations
+  # or unified dependencies; those need assembled-tree tests, not just lint.
   verify:
     runs-on: [ubuntu-latest]
     strategy:
@@ -25,6 +25,8 @@ jobs:
       with:
         python-version: "3.13"
     - run: go version
+    - name: artifact verifier regression tests
+      run: python3 -B -m unittest discover -s tools/scripts -p '*_test.py'
     # gofmt: the tools/ Go files are the source of truth and must be
     # gofmt-clean. gofmt -l prints any file that is not formatted; a non-empty
     # list fails the job.
@@ -77,13 +79,16 @@ jobs:
     # their generated siblings present. Scoped on purpose: the broader
     # `make test-go` also pulls in synced upstream tests (e.g. gomock-based
     # attacher/snapshotter tests) whose vendored deps don't survive the sync
-    # import rewrite; those are covered by the upstream projects' own CI.
+    # import rewrite. Restoring those suites against the assembled tree is
+    # still needed; upstream CI is not a substitute for testing our rewrites.
     # sync.sh already runs the same `go test` as a checkpoint (the cached
     # re-run here is cheap); this makes the gate visible and adds `go vet`.
     - name: unit tests
       run: go test ./cmd/csi-sidecars/... ./pkg/attacher/cmd/csi-attacher/config/...
     - name: go vet
       run: go vet ./cmd/csi-sidecars/... ./pkg/attacher/cmd/csi-attacher/config/...
+    - name: README CLI smoke test
+      run: python3 tools/scripts/verify_artifacts.py cli
 
   e2e-hostpath:
     runs-on: [ubuntu-latest]

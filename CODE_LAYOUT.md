@@ -28,6 +28,8 @@ tools/
 ├── scripts/
 │   ├── sync.sh                     # sync script (formerly hack/do_sync.sh)
 │   ├── cleanup.sh                  # cleanup script (formerly hack/do_cleanup.sh)
+│   ├── verify_artifacts.py         # README CLI and image packaging smoke checks
+│   ├── verify_artifacts_test.py    # verifier regression tests
 │   └── sidecars.conf               # list of sidecars to sync (<sidecar>,<branch>)
 ├── csi-release-tools-hashes.txt
 ├── sync.log                        # reference log of a successful sync (generated, tracked)

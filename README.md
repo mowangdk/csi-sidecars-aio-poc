@@ -34,10 +34,10 @@ are:
 - Propagate changes in common libraries used by CSI Sidecars immediately instead of through additional PRs.
 - Reduce the number of components CSI Driver authors and cluster administrators need to keep up to date in k8s clusters.
 
-As a side effect we also:
-
-- Reduce the memory usage/API server calls done by the CSI Sidecars through the usage of a shared informer.
-- Reduce the cluster resource requirements needed to run the CSI Sidecars.
+The design also targets lower memory usage, fewer API server calls through
+shared informers, and lower cluster resource requirements. Shared informers
+across controllers are not implemented in this PoC yet; these benefits still
+need to be measured against equivalent standalone sidecars.
 
 See the [KEP](https://github.com/kubernetes/enhancements/pull/5153) for the full
 motivation, quantified benefits and risk analysis.
@@ -50,7 +50,7 @@ The key design points from the KEP as implemented (or targeted) by this repo:
   sidecars selectively, kube-controller-manager style, through a
   `--controllers` flag, e.g. `--controllers=attacher,provisioner,resizer,snapshotter`.
 - **Command line split in two types**: global flags configured once for all
-  controllers (e.g. `--csi-address`, `--leader-election`, `--timeout`), and
+  controllers (e.g. `--csi-address`, `--leader-election`, `--kube-api-qps`), and
   per-controller flags prefixed with the controller name
   (e.g. `--attacher-timeout`, `--attacher-worker-threads`).
 - **Standalone binaries stay standalone**: `snapshot-controller` and
@@ -64,8 +64,12 @@ The key design points from the KEP as implemented (or targeted) by this repo:
 - **Individual repo history preserved**: each sidecar is cloned with
   `git-filter-repo`, keeping the full commit history available for
   `git blame`/`git log` traceability.
-- **Reproducible builds**: a single generated `go.mod`/`go.work` at the
-  repository root; synced components do not carry their own `go.mod`.
+- **Unified dependency workspace**: a generated `go.mod`/`go.work` at the
+  repository root; synced sidecar components do not carry their own `go.mod`.
+  Builds are **not reproducible yet**: sidecar branches, the `csi-lib-utils`
+  checkout, and the container base image are mutable inputs. Reproducibility
+  requires locking upstream commit IDs, tool/dependency versions, and image
+  digests; selecting a release branch alone does not pin its contents.
 - **RBAC**: mirrors the individual repositories, each controller keeps its own
   policy; driver maintainers apply the RBAC of the controllers they enable.
 
@@ -94,11 +98,25 @@ The snapshotter integration additionally produces two standalone binaries,
 `snapshot-controller` and `snapshot-conversion-webhook`, alongside the merged
 `csi-sidecars` binary.
 
+### Current limitations
+
+- Hostpath e2e currently enables only attacher, provisioner, and resizer in AIO;
+  snapshotter runs in a separate upstream container. It does not yet validate
+  the four-controller configuration below or our standalone snapshot images.
+- Common leader-election flags configure the individual controller elections;
+  they do not establish one process-wide election. Shared informers, unified
+  health/metrics serving, and coordinated graceful shutdown are still pending.
+- With multiple controllers enabled, do not set `--http-endpoint` or
+  `--metrics-address` yet: individual controllers attempt to bind the same
+  address. The combined process is not production-ready.
+
 ## Usage
 
 A CSI driver deployment replaces the individual sidecar containers with a
-single `csi-sidecars` container. Control plane example (the same style used by
-the hostpath e2e deployment in [`deploy/`](./deploy/)):
+single `csi-sidecars` container. The following is an illustrative control-plane
+manifest fragment, not an installable Deployment: supply driver/image details,
+selectors and labels, a service account with matching RBAC, and socket volumes.
+See [`deploy/`](./deploy/) for the narrower hostpath test deployment.
 
 ```yaml
 kind: Deployment
@@ -117,23 +135,31 @@ spec:
         - name: csi-sidecars
           command:
             - csi-sidecars
-            - "--csi-address=unix:/csi/csi.sock"
-            # similar style as kube-controller-manager
+          args:
+            # BEGIN AIO CLI ARGS
+            - "--csi-address=/csi/csi.sock"
             - "--controllers=attacher,provisioner,resizer,snapshotter"
-            - "--feature-gates=Topology=true"
-            # leader election flags for all the components as one
+            # Common settings for the individual controller elections
             - "--leader-election"
             - "--leader-election-namespace=kube-system"
-            # global timeouts
-            - "--timeout=30s"
-            # per controller specific flags are prefixed with the controller name
+            # No global --timeout flag is currently registered
             - "--attacher-timeout=30s"
+            - "--resizer-resize-timeout=30s"
+            - "--resizer-modify-timeout=30s"
+            - "--snapshotter-timeout=30s"
             - "--attacher-worker-threads=100"
             - "--provisioner-volume-name-prefix=pvc"
+            # END AIO CLI ARGS
           volumeMounts:
             - mountPath: /csi
               name: socket-dir
 ```
+
+Timeout configuration is still transitional: `--attacher-timeout` also supplies
+the legacy `timeout`/`operationTimeout` globals consumed by the merged code.
+Resizer operation timeouts and snapshotter RPC timeouts have their own flags as
+shown above; a global timeout/override precedence contract is not implemented.
+CI checks that these arguments parse, not that this fragment is deployable.
 
 Once the node-side components (e.g. `node-driver-registrar`, `livenessprobe`)
 are integrated, the same image will serve the node pools with a different
@@ -143,6 +169,7 @@ are integrated, the same image will serve the node pools with a different
 
 Requirements:
 
+- Linux (amd64 or arm64) for the sync/build script
 - go 1.26
 - python 3 (for `git-filter-repo`)
 
@@ -161,7 +188,8 @@ python3 -m venv .venv && source .venv/bin/activate
 Logs: [./tools/sync.log](./tools/sync.log)
 
 The sync script clones each sidecar repo preserving their commit history
-(using `git-filter-repo`). The full commit history is available at `pkg/<sidecar>/.git`.
+(using `git-filter-repo`). The merged history is available at `tmp/csi-sidecars/`;
+`pkg/<sidecar>/` contains the processed source files, not a Git checkout.
 
 To change which sidecars are synced or from which branch, edit
 [`tools/scripts/sidecars.conf`](./tools/scripts/sidecars.conf). Makefile
@@ -183,16 +211,37 @@ The presubmit workflow (`.github/workflows/presubmit.yaml`) has these jobs:
 
 - `verify` — code-quality gates on the hand-maintained source of truth under
   `tools/`: `gofmt`, Apache-2.0 boilerplate license headers, and
-  `shellcheck` (severity `warning`) on the scripts we own. The generated
-  assembly area (`cmd/`, `pkg/`, `staging/`) mirrors upstream code and is
-  covered by each upstream project's own CI, so it is intentionally not
-  re-verified here.
-- `build` — runs the full sync and builds the merged binary.
-- `unit` — runs `go test` and `go vet` over the hand-maintained packages.
+  `shellcheck` (severity `warning`) on the scripts we own, plus regression
+  tests for the artifact verifier. This lint job excludes the generated
+  assembly area (`cmd/`, `pkg/`, `staging/`). Upstream CI does not validate our
+  transformations or unified dependencies; restoring the full upstream unit
+  suites against the assembled tree remains necessary.
+- `build` — runs the full sync, builds all three binaries, runs `go test` and
+  `go vet` over the hand-maintained packages, and validates the marked README
+  arguments against the assembled AIO CLI.
 - `e2e-hostpath` — runs the Hostpath CSI driver e2e suite via `.prow.sh`.
 
-Supplementary workflows: `trivy.yaml` (report-only image vulnerability scan) and
-`codespell.yml` (spelling).
+Supplementary workflows: `trivy.yaml` builds all three images and checks each
+entrypoint, packaged executable, and component-specific help before performing
+a report-only vulnerability scan; `codespell.yml` checks spelling.
+
+After a successful sync, run the artifact checks locally with:
+
+```bash
+python3 tools/scripts/verify_artifacts.py cli
+make container
+python3 tools/scripts/verify_artifacts.py images
+# Alternatively, use --engine podman for the image checks.
+```
+
+The smoke checks require no Kubernetes cluster or CSI socket. The image checks
+run with container networking disabled and verify that `--help` exits cleanly;
+they do not replace controller integration tests. Run the verifier's regression
+tests without assembly or a container engine using:
+
+```bash
+python3 -B -m unittest discover -s tools/scripts -p '*_test.py'
+```
 
 ### E2E tests through the Hostpath CSI Driver
 
