@@ -25,7 +25,7 @@ jobs:
       with:
         python-version: "3.13"
     - run: go version
-    - name: artifact verifier regression tests
+    - name: tooling regression tests
       run: python3 -B -m unittest discover -s tools/scripts -p '*_test.py'
     # gofmt: the tools/ Go files are the source of truth and must be
     # gofmt-clean. gofmt -l prints any file that is not formatted; a non-empty

@@ -195,6 +195,12 @@ To change which sidecars are synced or from which branch, edit
 [`tools/scripts/sidecars.conf`](./tools/scripts/sidecars.conf). Makefile
 shortcuts wrap the same scripts: `make sync` and `make clean`.
 
+The sync retries `go mod tidy` and `go work vendor` up to three times for
+recognized transient proxy/checksum-server transport errors, waiting 5 and 10
+seconds between attempts. Checksum verification remains enabled; integrity
+failures and other deterministic errors fail immediately. The entire sync is
+not retried because its repository transformations are not safe to restart.
+
 See [CODE_LAYOUT.md](./CODE_LAYOUT.md) for the dual-layer layout that separates
 the hand-maintained `tools/` source of truth from the generated assembly area.
 
@@ -212,9 +218,9 @@ The presubmit workflow (`.github/workflows/presubmit.yaml`) has these jobs:
 - `verify` — code-quality gates on the hand-maintained source of truth under
   `tools/`: `gofmt`, Apache-2.0 boilerplate license headers, and
   `shellcheck` (severity `warning`) on the scripts we own, plus regression
-  tests for the artifact verifier. This lint job excludes the generated
-  assembly area (`cmd/`, `pkg/`, `staging/`). Upstream CI does not validate our
-  transformations or unified dependencies; restoring the full upstream unit
+  tests for artifact verification and dependency retries. This lint job excludes
+  the generated assembly area (`cmd/`, `pkg/`, `staging/`). Upstream CI does not
+  validate our transformations or unified dependencies; restoring the full upstream unit
   suites against the assembled tree remains necessary.
 - `build` — runs the full sync, builds all three binaries, runs `go test` and
   `go vet` over the hand-maintained packages, and validates the marked README
@@ -236,7 +242,7 @@ python3 tools/scripts/verify_artifacts.py images
 
 The smoke checks require no Kubernetes cluster or CSI socket. The image checks
 run with container networking disabled and verify that `--help` exits cleanly;
-they do not replace controller integration tests. Run the verifier's regression
+they do not replace controller integration tests. Run the tooling regression
 tests without assembly or a container engine using:
 
 ```bash

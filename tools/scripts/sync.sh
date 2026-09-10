@@ -27,6 +27,9 @@ SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "${REPO_ROOT}"
 
+# shellcheck source=tools/scripts/retry-go-dependencies.sh
+source "${REPO_ROOT}/tools/scripts/retry-go-dependencies.sh"
+
 # ==============================================================================
 # DEVELOPER WORKSPACE PATH NORMALIZATION
 # ==============================================================================
@@ -440,7 +443,7 @@ cat <<EOF >>go.mod
 
 EOF
 cat tmp/gomod-replace.txt | sort | uniq >>go.mod
-go mod tidy
+retry_go_dependencies go mod tidy
 
 # The Makefile is hand-maintained (it carries the sync/clean targets, see
 # CODE_LAYOUT.md); sync only keeps its CMDS list current. The minimal skeleton
@@ -476,8 +479,8 @@ fi
 ${TRASH} go.work go.sum
 go work init .
 go work use ./staging/src/github.com/kubernetes-csi/csi-lib-utils
-go mod tidy
-go work vendor
+retry_go_dependencies go mod tidy
+retry_go_dependencies go work vendor
 
 # Echo each checkpoint command before running it so every step is visible in
 # the log.
