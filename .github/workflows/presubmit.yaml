@@ -5,6 +5,54 @@ on:
   pull_request:
   workflow_dispatch:
 jobs:
+  # verify runs the code-quality gates that upstream kubernetes-csi expects
+  # (gofmt, boilerplate license headers, shellcheck). These are scoped
+  # to the hand-maintained source of truth under tools/ and to the shell
+  # scripts we own. This lint job does not cover the generated assembly area
+  # (cmd/, pkg/, staging/). Upstream CI does not validate our transformations
+  # or unified dependencies; those need assembled-tree tests, not just lint.
+  verify:
+    runs-on: [ubuntu-latest]
+    strategy:
+      matrix:
+        go: ["1.26.5"]
+    steps:
+    - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
+    - uses: actions/setup-go@v5
+      with:
+        go-version: ${{ matrix.go }}
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.13"
+    - run: go version
+    - name: tooling regression tests
+      run: python3 -B -m unittest discover -s tools/scripts -p '*_test.py'
+    # gofmt: the tools/ Go files are the source of truth and must be
+    # gofmt-clean. gofmt -l prints any file that is not formatted; a non-empty
+    # list fails the job.
+    - name: gofmt
+      run: |
+        unformatted=$(gofmt -l tools/)
+        if [ -n "$unformatted" ]; then
+          echo "The following files are not gofmt-clean:"
+          echo "$unformatted"
+          echo "Run: gofmt -w tools/"
+          exit 1
+        fi
+    # boilerplate: reuse the canonical upstream checker (same script that
+    # `make test-boilerplate` runs), scoped to tools/ via its root-dir
+    # argument. It validates the full Apache 2.0 header of every .go/.sh
+    # file against release-tools/boilerplate/.
+    - name: boilerplate (license headers)
+      run: ./release-tools/verify-boilerplate.sh "${PWD}/tools"
+    # shellcheck: lint the shell scripts we own (sync/cleanup + CI entrypoints).
+    # --severity=warning keeps the gate on real bugs/warnings while allowing
+    # info-level style suggestions (e.g. SC2086 quoting) that would otherwise
+    # add noise to the tightly-tuned sync.sh. shellcheck is preinstalled on
+    # ubuntu-latest runners.
+    - name: shellcheck
+      run: shellcheck --severity=warning tools/scripts/*.sh .prow.sh .cloudbuild.sh
+
   build:
     runs-on: [ubuntu-latest]
     strategy:
@@ -25,6 +73,22 @@ jobs:
     - run: |
         python3 -m venv .venv && source .venv/bin/activate
         ./tools/scripts/sync.sh
+    # Unit tests + vet over the hand-maintained sources only. These are
+    # assembled into cmd/csi-sidecars (AIO main + config) and
+    # pkg/attacher/.../config via symlinks from tools/, so they compile with
+    # their generated siblings present. Scoped on purpose: the broader
+    # `make test-go` also pulls in synced upstream tests (e.g. gomock-based
+    # attacher/snapshotter tests) whose vendored deps don't survive the sync
+    # import rewrite. Restoring those suites against the assembled tree is
+    # still needed; upstream CI is not a substitute for testing our rewrites.
+    # sync.sh already runs the same `go test` as a checkpoint (the cached
+    # re-run here is cheap); this makes the gate visible and adds `go vet`.
+    - name: unit tests
+      run: go test ./cmd/csi-sidecars/... ./pkg/attacher/cmd/csi-attacher/config/...
+    - name: go vet
+      run: go vet ./cmd/csi-sidecars/... ./pkg/attacher/cmd/csi-attacher/config/...
+    - name: README CLI smoke test
+      run: python3 tools/scripts/verify_artifacts.py cli
 
   e2e-hostpath:
     runs-on: [ubuntu-latest]

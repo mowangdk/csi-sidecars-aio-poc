@@ -1,4 +1,19 @@
 #!/bin/bash
+
+# Copyright 2026 The Kubernetes Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 set -euxo pipefail
 
 if [[ $(uname) != "Linux" ]]; then
@@ -11,6 +26,9 @@ fi
 SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "${REPO_ROOT}"
+
+# shellcheck source=tools/scripts/retry-go-dependencies.sh
+source "${REPO_ROOT}/tools/scripts/retry-go-dependencies.sh"
 
 # ==============================================================================
 # DEVELOPER WORKSPACE PATH NORMALIZATION
@@ -209,10 +227,12 @@ commit.message = new_message.encode()
     (
       cd pkg/${SIDECAR}
       if [ "${SIDECAR}" = "snapshotter" ]; then
+        # shellcheck disable=SC2038 # upstream Go sources have no whitespace/special chars in their paths
         find . -type f -exec grep -q "github.com/kubernetes-csi/external-${SIDECAR}/" --files-with-matches {} \; -print |
           xargs -r sed -E -i".bak" -e "s%github.com/kubernetes-csi/external-snapshotter/v8/%github.com/kubernetes-csi/csi-sidecars/pkg/snapshotter/%g" \
                                 -e "s%github.com/kubernetes-csi/external-snapshotter/client/v8/%github.com/kubernetes-csi/csi-sidecars/pkg/snapshotter/client/%g"
       else
+        # shellcheck disable=SC2038 # upstream Go sources have no whitespace/special chars in their paths
         find . -type f -exec grep -q "github.com/kubernetes-csi/external-${SIDECAR}/" --files-with-matches {} \; -print |
           xargs -r sed -E -i".bak" "s%github.com/kubernetes-csi/external-${SIDECAR}/(v[0-9]+/)?%github.com/kubernetes-csi/csi-sidecars/pkg/${SIDECAR}/%g"
       fi
@@ -225,6 +245,7 @@ commit.message = new_message.encode()
   # - A main() function - CSI repositories no longer need them.
   # - Flags, logging code
   # may have code that
+  # shellcheck disable=SC2044 # entrypoint filenames are plain *.go, no whitespace/globbing risk
   for FILE in $(find pkg/${SIDECAR}/cmd/csi-${SIDECAR}/ -maxdepth 1 -name '*.go' ! -name '*_test.go'); do
     NEW_FILE="cmd/csi-sidecars/${SIDECAR}_$(basename ${FILE})"
     cp -v -- "${FILE}" "${NEW_FILE}"
@@ -361,6 +382,25 @@ for FILE in cmd/snapshot-conversion-webhook/*.go; do
   add_generation_marker "${FILE}" "external-snapshotter"
 done
 
+# Per-cmd Dockerfiles: build.make's container-% target uses ./cmd/<name>/Dockerfile
+# when present and otherwise falls back to the root Dockerfile, which hardcodes
+# the csi-sidecars binary and entrypoint. Without these, snapshot-controller and
+# snapshot-conversion-webhook images would ship the wrong binary.
+# The `binary` ARG is required by release-tools/cloudbuild.yaml: push-multiarch-%
+# passes --build-arg binary=./bin/<cmd><arch-suffix>, so the COPY must consume it
+# or non-amd64 images would silently embed the host-arch binary. \${binary} is
+# escaped because this heredoc is unquoted (${CMD} must expand, ${binary} must not).
+for CMD in snapshot-controller snapshot-conversion-webhook; do
+  cat <<EOF >cmd/${CMD}/Dockerfile
+FROM gcr.io/distroless/static:latest
+LABEL maintainers="Kubernetes Authors"
+LABEL description="${CMD}"
+ARG binary=./bin/${CMD}
+COPY \${binary} /${CMD}
+ENTRYPOINT ["/${CMD}"]
+EOF
+done
+
 # The sed -i".bak" rewrites above leave backup files behind in the generated
 # area; drop them so the assembly tree contains only the transformed sources.
 find cmd pkg staging -name '*.bak' -delete
@@ -403,7 +443,7 @@ cat <<EOF >>go.mod
 
 EOF
 cat tmp/gomod-replace.txt | sort | uniq >>go.mod
-go mod tidy
+retry_go_dependencies go mod tidy
 
 # The Makefile is hand-maintained (it carries the sync/clean targets, see
 # CODE_LAYOUT.md); sync only keeps its CMDS list current. The minimal skeleton
@@ -439,8 +479,8 @@ fi
 ${TRASH} go.work go.sum
 go work init .
 go work use ./staging/src/github.com/kubernetes-csi/csi-lib-utils
-go mod tidy
-go work vendor
+retry_go_dependencies go mod tidy
+retry_go_dependencies go work vendor
 
 # Echo each checkpoint command before running it so every step is visible in
 # the log.

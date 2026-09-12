@@ -1,0 +1,99 @@
+---
+# Trivy scans the built images for known vulnerabilities.
+#
+# Because the sidecar source is synced/generated from the upstream
+# kubernetes-csi repositories, dependency-level fixes usually have to land
+# upstream first. The scan therefore runs in report-only mode (exit-code: 0)
+# so it surfaces findings in the job log without blocking PRs on issues that
+# cannot be fixed in this repository.
+name: Trivy vulnerability scanner
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  schedule:
+    - cron: '0 0 * * *'  # Run daily at midnight UTC
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
+
+      - name: Parse go version from .prow.sh
+        id: go-version
+        run: |
+          GO_VERSION=$(sed -n -E 's/^export CSI_PROW_GO_VERSION_BUILD="?([0-9.]+)"?.*$/\1/p' .prow.sh)
+          if [ -z "$GO_VERSION" ]; then
+            echo "CSI_PROW_GO_VERSION_BUILD not found in .prow.sh" >&2
+            exit 1
+          fi
+          echo "Using go: $GO_VERSION"
+          echo "go=$GO_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Install go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ steps.go-version.outputs.go }}
+
+      - name: Setup python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Sync the assembly area from upstream kubernetes-csi repositories
+        run: |
+          export GOPATH=$(go env GOPATH)
+          ./tools/scripts/cleanup.sh
+          python3 -m venv .venv && source .venv/bin/activate
+          ./tools/scripts/sync.sh
+
+      - name: Build images from Dockerfile
+        # `make container` builds every cmd in the Makefile's CMDS list
+        # (kept current by sync.sh); the three scans below stay in one job
+        # so they share the trivy DB downloaded by the first scan.
+        run: make container
+
+      # A scanner cannot detect that an image was packaged with the wrong
+      # component. Fail on bad entrypoints, wrong binaries, or broken CLIs
+      # even though vulnerability findings below are report-only.
+      - name: Verify image contents and component CLIs
+        run: python3 tools/scripts/verify_artifacts.py images
+
+      - name: Run Trivy vulnerability scanner on csi-sidecars image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        env:
+          TRIVY_DB_REPOSITORY: "public.ecr.aws/aquasecurity/trivy-db:2"
+        with:
+          image-ref: 'csi-sidecars:latest'
+          format: 'table'
+          exit-code: '0'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH,MEDIUM,LOW,UNKNOWN'
+
+      - name: Run Trivy vulnerability scanner on snapshot-controller image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        env:
+          TRIVY_DB_REPOSITORY: "public.ecr.aws/aquasecurity/trivy-db:2"
+        with:
+          image-ref: 'snapshot-controller:latest'
+          format: 'table'
+          exit-code: '0'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH,MEDIUM,LOW,UNKNOWN'
+
+      - name: Run Trivy vulnerability scanner on snapshot-conversion-webhook image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        env:
+          TRIVY_DB_REPOSITORY: "public.ecr.aws/aquasecurity/trivy-db:2"
+        with:
+          image-ref: 'snapshot-conversion-webhook:latest'
+          format: 'table'
+          exit-code: '0'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH,MEDIUM,LOW,UNKNOWN'

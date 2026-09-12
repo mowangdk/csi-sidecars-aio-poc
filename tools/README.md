@@ -18,6 +18,10 @@ assembly area.
 | `pkg/attacher/cmd/csi-attacher/config/flags_test.go` | Attacher flag-registration tests. |
 | `scripts/sync.sh` | Clones upstream `external-*`, rewrites imports, assembles the merged module and binaries. |
 | `scripts/cleanup.sh` | Removes all generated artifacts (leaves `tools/` untouched). |
+| `scripts/retry-go-dependencies.sh` | Bounded retries for transient Go dependency transport failures; preserves checksum verification. |
+| `scripts/retry_go_dependencies_test.py` | Regression tests for retry limits, exit status, and integrity failures. |
+| `scripts/verify_artifacts.py` | Checks README CLI arguments and packaged image executables/entrypoints/help. |
+| `scripts/verify_artifacts_test.py` | Regression tests for the artifact verifier; no assembly or container engine required. |
 | `scripts/sidecars.conf` | List of sidecars to sync, one `<sidecar>,<branch>` per line. |
 | `csi-release-tools-hashes.txt` | Pinned release-tools hashes. |
 | `sync.log` | Reference log of a successful sync (tracked, generated). |
