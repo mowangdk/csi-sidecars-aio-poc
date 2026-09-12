@@ -1,5 +1,11 @@
 # CSI Sidecars Monorepo
 
+This repository is an experimental proof-of-concept implementation of
+[KEP-4958: CSI Sidecars All in one](https://github.com/kubernetes/enhancements/pull/5153).
+It is **not production-ready**. The Kubernetes community resources referenced
+below describe the upstream ecosystem, not a claim that this PoC has completed
+formal SIG project onboarding or has an official release/support commitment.
+
 The [Container Storage Interface (CSI)](https://kubernetes-csi.github.io/docs/)
 is the standard for exposing storage systems to containerized workloads on
 Kubernetes. Storage vendors implement the CSI specification in a *CSI driver*;
@@ -14,7 +20,7 @@ components maintained by the SIG Storage community in the
   - [external-snapshotter](https://github.com/kubernetes-csi/external-snapshotter) — watches VolumeSnapshots and calls `CreateSnapshot`/`DeleteSnapshot`.
   - [node-driver-registrar](https://github.com/kubernetes-csi/node-driver-registrar), [livenessprobe](https://github.com/kubernetes-csi/livenessprobe), and others.
 - **Controllers and webhooks** that are deployed cluster-wide rather than as
-  sidecars, e.g. `snapshot-controller` and the CSI snapshot validation webhook.
+  sidecars, e.g. `snapshot-controller` and `snapshot-conversion-webhook`.
 - **Shared libraries and tooling**: [csi-lib-utils](https://github.com/kubernetes-csi/csi-lib-utils)
   (metrics, RPC helpers, ...) and [csi-release-tools](https://github.com/kubernetes-csi/csi-release-tools)
   (build/release/CI plumbing).
@@ -70,8 +76,11 @@ The key design points from the KEP as implemented (or targeted) by this repo:
   checkout, and the container base image are mutable inputs. Reproducibility
   requires locking upstream commit IDs, tool/dependency versions, and image
   digests; selecting a release branch alone does not pin its contents.
-- **RBAC**: mirrors the individual repositories, each controller keeps its own
-  policy; driver maintainers apply the RBAC of the controllers they enable.
+- **RBAC**: the design reuses each enabled controller's upstream policy. The
+  current hostpath test deployment references fixed, older RBAC versions; these
+  are not generated from the synced source revisions. Driver maintainers must
+  verify permissions against the actual controller versions and features they
+  enable rather than treating the test deployment as a production installer.
 
 ## Scope and status
 
@@ -98,6 +107,22 @@ The snapshotter integration additionally produces two standalone binaries,
 `snapshot-controller` and `snapshot-conversion-webhook`, alongside the merged
 `csi-sidecars` binary.
 
+### Validation scope
+
+The following describes the current CI configuration and completed manual
+checks, not a production compatibility or support matrix. A passing build or
+CLI smoke test does not establish that a controller works correctly in a cluster.
+
+| Area | Current validation |
+|------|--------------------|
+| Linux amd64 | GitHub CI builds the binaries and images and runs the maintained-package tests. |
+| Linux arm64 | Manually verified with Podman using real sources, binaries, and images; not yet an automated CI matrix entry. |
+| Hostpath e2e | Kubernetes 1.31.9, with attacher, provisioner, and resizer in AIO and snapshotter in a separate upstream container. |
+| Four controllers together | Build and CLI coverage, not complete in-cluster functional coverage. |
+| Standalone snapshot-controller and webhook | Build and image/CLI smoke checks, not complete functional coverage. |
+| Race detection, HA, upgrades and rollback | Not yet covered by a complete automated test suite. |
+| Vulnerabilities | Daily and PR image scans are report-only; success does not mean the images have no vulnerabilities. |
+
 ### Current limitations
 
 - Hostpath e2e currently enables only attacher, provisioner, and resizer in AIO;
@@ -109,6 +134,37 @@ The snapshotter integration additionally produces two standalone binaries,
 - With multiple controllers enabled, do not set `--http-endpoint` or
   `--metrics-address` yet: individual controllers attempt to bind the same
   address. The combined process is not production-ready.
+- The official release pipeline is not wired up. The presence of vendored
+  `release-tools` and `.cloudbuild.sh` does not establish a working release
+  process: there is no root `cloudbuild.yaml`, and the cloud-build entrypoint
+  does not assemble this repository's generated source tree.
+
+## Images and build environment
+
+A successful sync builds the following binaries under `bin/`. Running
+`make container` then produces local images with matching names:
+
+| Local image | Purpose | Dockerfile |
+|-------------|---------|------------|
+| `csi-sidecars:latest` | Runs the selected driver-side controllers. | `Dockerfile` |
+| `snapshot-controller:latest` | Runs the cluster-wide snapshot controller separately. | Generated `cmd/snapshot-controller/Dockerfile` |
+| `snapshot-conversion-webhook:latest` | Runs the snapshot conversion webhook separately. | Generated `cmd/snapshot-conversion-webhook/Dockerfile` |
+
+All three currently use **`gcr.io/distroless/static:latest`** as their runtime
+base image. Go compilation happens outside these Dockerfiles; they copy the
+already-built binaries into a minimal image without a shell or package manager.
+The `golang:1.26.5` image used for manual Podman verification is a **builder**,
+not the runtime base image and not yet a shared, digest-pinned CI environment.
+
+Neither the runtime base nor the builder above is pinned by digest. The current
+Dockerfiles do not select a non-root user; the manually verified images run as
+UID 0 by default. Version/digest pinning and non-root execution remain future
+work, with socket permissions, certificate access, and listening ports to be
+validated before changing the runtime user.
+
+These local image names are development artifacts, not official registry pull
+locations or stable releases. Image build success does not imply that release
+publishing, signing, or promotion has been configured.
 
 ## Usage
 
@@ -167,25 +223,45 @@ are integrated, the same image will serve the node pools with a different
 
 ## Development
 
-Requirements:
+### Requirements
 
-- Linux (amd64 or arm64) for the sync/build script
-- go 1.26
-- python 3 (for `git-filter-repo`)
+- **Source sync/build:** Linux (amd64 or arm64), Bash, Git, make, GNU command-line
+  tools (including sed, find, and xargs), Go, and Python with venv/pip support.
+  The sync installs `git-filter-repo` into the active virtual environment when
+  it is missing. Network access to upstream repositories and dependency services
+  is required.
+- **Versions exercised by CI:** Go **1.26.5** and Python **3.13**. These are
+  tested versions, not a claim of minimum compatibility with every earlier
+  Python or Go release.
+- **Image building:** `make container` currently invokes the Docker CLI and
+  requires a running engine. The image verifier can use Docker or Podman.
+- **Cluster e2e:** additionally requires a Docker-capable Linux environment and
+  permissions for the kind/driver test setup. Use an isolated GOPATH because the
+  test tooling checks out and cleans repositories there.
+
+Run the shell examples below in **Bash**, from the repository root. For macOS
+or a Podman-based Linux build, see [Development with Podman](docs/development.md).
 
 ### Building the project locally
 
-After cloning the repo, run the following commands to start from scratch:
+After cloning the repo, run the following commands to start from scratch.
+Cleanup removes the generated assembly area and binaries, so do not keep manual
+changes there:
 
 ```bash
-# cleanup first
+set -euo pipefail
 ./tools/scripts/cleanup.sh
-# setup venv, clone repos with history, setup go workspaces and build
-python3 -m venv .venv && source .venv/bin/activate
-./tools/scripts/sync.sh 2>&1 | tee tools/sync.log
+python3 -m venv .venv
+source .venv/bin/activate
+sync_log=$(mktemp "${TMPDIR:-/tmp}/csi-sidecars-sync.XXXXXX")
+./tools/scripts/sync.sh 2>&1 | tee "$sync_log"
+printf 'Sync log: %s\n' "$sync_log"
 ```
 
-Logs: [./tools/sync.log](./tools/sync.log)
+`pipefail` preserves a failing sync's exit status instead of reporting only
+`tee`'s status. The tracked [tools/sync.log](./tools/sync.log) is a historical
+reference, not the output of your current run; the example writes a new log
+instead of overwriting it.
 
 The sync script clones each sidecar repo preserving their commit history
 (using `git-filter-repo`). The merged history is available at `tmp/csi-sidecars/`;
@@ -206,12 +282,12 @@ the hand-maintained `tools/` source of truth from the generated assembly area.
 
 ### Building the project using CI
 
-There's a presubmit job that runs on every PR using Github Actions,
-to run the action locally install https://github.com/nektos/act and run:
-
-```bash
-act push
-```
+GitHub Actions runs presubmit checks for pull requests and pushes to `main`.
+Use the local commands below to exercise the build and tooling checks.
+[act](https://github.com/nektos/act) is an optional workflow debugging tool, not
+a guaranteed reproduction of the full CI environment: workflow event/branch
+filters, runner images, and Docker/privileged e2e setup must also be accounted
+for.
 
 The presubmit workflow (`.github/workflows/presubmit.yaml`) has these jobs:
 
@@ -220,8 +296,8 @@ The presubmit workflow (`.github/workflows/presubmit.yaml`) has these jobs:
   `shellcheck` (severity `warning`) on the scripts we own, plus regression
   tests for artifact verification and dependency retries. This lint job excludes
   the generated assembly area (`cmd/`, `pkg/`, `staging/`). Upstream CI does not
-  validate our transformations or unified dependencies; restoring the full upstream unit
-  suites against the assembled tree remains necessary.
+  validate our transformations or unified dependencies; restoring the full
+  upstream unit suites against the assembled tree remains necessary.
 - `build` — runs the full sync, builds all three binaries, runs `go test` and
   `go vet` over the hand-maintained packages, and validates the marked README
   arguments against the assembled AIO CLI.
@@ -234,11 +310,22 @@ a report-only vulnerability scan; `codespell.yml` checks spelling.
 After a successful sync, run the artifact checks locally with:
 
 ```bash
+set -euo pipefail
 python3 tools/scripts/verify_artifacts.py cli
 make container
 python3 tools/scripts/verify_artifacts.py images
-# Alternatively, use --engine podman for the image checks.
 ```
+
+For images built in Podman's local image store, run:
+
+```bash
+python3 tools/scripts/verify_artifacts.py images --engine podman
+```
+
+`--engine podman` switches **only the verifier**. It does not make
+`make container` use Podman, nor does it transfer images from Docker's image
+store. See [Development with Podman](docs/development.md) for the isolated
+source build, explicit Podman image builds, and verification steps.
 
 The smoke checks require no Kubernetes cluster or CSI socket. The image checks
 run with container networking disabled and verify that `--help` exits cleanly;
@@ -251,20 +338,30 @@ python3 -B -m unittest discover -s tools/scripts -p '*_test.py'
 
 ### E2E tests through the Hostpath CSI Driver
 
-- Go over the slides above.
-- Make sure that the project was built locally. The `sync.sh` command should exit with status code 0.
+- Read the [hostpath deployment notes](deploy/README.md) and the
+  [presentation slides](https://docs.google.com/presentation/d/1lldJYYf2WVxgv4O3Wgdefrq3ZAN7s3Mwx-GL_CRmakE/).
+- Make sure the local build completed successfully before starting e2e.
+- Review the limited controller/version coverage in [Validation scope](#validation-scope).
 
-WARNING: The following nukes your $GOPATH/src/k8s.io/ directory. Please read .prow.sh.log
-and find the `git clean -fdx` command (which removes untracked files).
+**Warning:** `.prow.sh` checks out and cleans repositories under GOPATH,
+including the Kubernetes source tree. Its `git clean -fdx` operations can remove
+untracked work. Run it in a disposable Linux environment with a fresh GOPATH,
+not one containing development checkouts. The tracked [.prow.sh.log](./.prow.sh.log)
+is a historical reference, not the result of this invocation.
 
 ```bash
-./.prow.sh 2>&1 | tee ./.prow.sh.log
+set -euo pipefail
+GOPATH=$(mktemp -d "${TMPDIR:-/tmp}/csi-sidecars-e2e-gopath.XXXXXX")
+export GOPATH
+e2e_log=$(mktemp "${TMPDIR:-/tmp}/csi-sidecars-e2e.XXXXXX")
+./.prow.sh 2>&1 | tee "$e2e_log"
+printf 'E2E log: %s\nDisposable GOPATH: %s\n' "$e2e_log" "$GOPATH"
 ```
 
 Common errors:
 
-- `ERROR: failed to clean $GOPATH/src/k8s.io/kubernetes`, csi-release-tools doesn't work fine
-  if there's a local copy of the kubernetes codebase already. Remove it and try again.
+- `ERROR: failed to clean $GOPATH/src/k8s.io/kubernetes`: retry with a fresh,
+  isolated GOPATH rather than deleting an existing development checkout.
 - `403 on pulling CSI manifests from github`. Due to throttling, try again.
 
 ## Resources
