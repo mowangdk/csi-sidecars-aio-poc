@@ -109,14 +109,14 @@ The snapshotter integration additionally produces two standalone binaries,
 
 ### Validation scope
 
-The following describes the current CI configuration and completed manual
-checks, not a production compatibility or support matrix. A passing build or
-CLI smoke test does not establish that a controller works correctly in a cluster.
+The following describes the current CI configuration, not a production
+compatibility or support matrix. A passing build or CLI smoke test does not
+establish that a controller works correctly in a cluster.
 
 | Area | Current validation |
 |------|--------------------|
 | Linux amd64 | GitHub CI builds the binaries and images and runs the maintained-package tests. |
-| Linux arm64 | Manually verified with Podman using real sources, binaries, and images; not yet an automated CI matrix entry. |
+| Linux arm64 | Not yet an automated CI matrix entry. |
 | Hostpath e2e | Kubernetes 1.31.9, with attacher, provisioner, and resizer in AIO and snapshotter in a separate upstream container. |
 | Four controllers together | Build and CLI coverage, not complete in-cluster functional coverage. |
 | Standalone snapshot-controller and webhook | Build and image/CLI smoke checks, not complete functional coverage. |
@@ -153,14 +153,14 @@ A successful sync builds the following binaries under `bin/`. Running
 All three currently use **`gcr.io/distroless/static:latest`** as their runtime
 base image. Go compilation happens outside these Dockerfiles; they copy the
 already-built binaries into a minimal image without a shell or package manager.
-The `golang:1.26.5` image used for manual Podman verification is a **builder**,
-not the runtime base image and not yet a shared, digest-pinned CI environment.
+CI installs Go on the runner to compile these binaries; the runtime image is
+not the build environment.
 
-Neither the runtime base nor the builder above is pinned by digest. The current
-Dockerfiles do not select a non-root user; the manually verified images run as
-UID 0 by default. Version/digest pinning and non-root execution remain future
-work, with socket permissions, certificate access, and listening ports to be
-validated before changing the runtime user.
+The runtime base is not pinned by digest, and CI does not yet use a shared,
+digest-pinned builder image. The current Dockerfiles inherit the base image's
+root user rather than selecting a non-root user. Version/digest pinning and
+non-root execution remain future work, with socket permissions, certificate
+access, and listening ports to be validated before changing the runtime user.
 
 These local image names are development artifacts, not official registry pull
 locations or stable releases. Image build success does not imply that release
@@ -234,13 +234,13 @@ are integrated, the same image will serve the node pools with a different
   tested versions, not a claim of minimum compatibility with every earlier
   Python or Go release.
 - **Image building:** `make container` currently invokes the Docker CLI and
-  requires a running engine. The image verifier can use Docker or Podman.
+  requires a running engine for both image building and verification.
 - **Cluster e2e:** additionally requires a Docker-capable Linux environment and
   permissions for the kind/driver test setup. Use an isolated GOPATH because the
   test tooling checks out and cleans repositories there.
 
-Run the shell examples below in **Bash**, from the repository root. For macOS
-or a Podman-based Linux build, see [Development with Podman](docs/development.md).
+Run the shell examples below in **Bash**, from the repository root in a Linux
+environment.
 
 ### Building the project locally
 
@@ -315,17 +315,6 @@ python3 tools/scripts/verify_artifacts.py cli
 make container
 python3 tools/scripts/verify_artifacts.py images
 ```
-
-For images built in Podman's local image store, run:
-
-```bash
-python3 tools/scripts/verify_artifacts.py images --engine podman
-```
-
-`--engine podman` switches **only the verifier**. It does not make
-`make container` use Podman, nor does it transfer images from Docker's image
-store. See [Development with Podman](docs/development.md) for the isolated
-source build, explicit Podman image builds, and verification steps.
 
 The smoke checks require no Kubernetes cluster or CSI socket. The image checks
 run with container networking disabled and verify that `--help` exits cleanly;
