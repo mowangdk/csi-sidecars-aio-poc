@@ -72,10 +72,9 @@ The key design points from the KEP as implemented (or targeted) by this repo:
   `git blame`/`git log` traceability.
 - **Unified dependency workspace**: a generated `go.mod`/`go.work` at the
   repository root; synced sidecar components do not carry their own `go.mod`.
-  Builds are **not reproducible yet**: sidecar branches, the `csi-lib-utils`
-  checkout, and the container base image are mutable inputs. Reproducibility
-  requires locking upstream commit IDs, tool/dependency versions, and image
-  digests; selecting a release branch alone does not pin its contents.
+  Exact source revisions, canonical dependencies, builder tools, and runtime
+  images are locked. See the [build workflow](./tools/README.md) for verification
+  scope. Native amd64, full offline assembly, and OCI reproducibility remain deferred.
 - **RBAC**: the design reuses each enabled controller's upstream policy. The
   current hostpath test deployment references fixed, older RBAC versions; these
   are not generated from the synced source revisions. Driver maintainers must
@@ -115,15 +114,20 @@ establish that a controller works correctly in a cluster.
 
 | Area | Current validation |
 |------|--------------------|
-| Linux amd64 | GitHub CI builds the binaries and images and runs the maintained-package tests. |
-| Linux arm64 | Not yet an automated CI matrix entry. |
+| Linux amd64 | Locked presubmit build configured; native execution acceptance remains pending. |
+| Linux arm64 | Local pre-commit assembly passed; see [branch evidence](./tools/README.md#standalone-branch-validation). Not an automated CI matrix entry. |
 | Hostpath e2e | Kubernetes 1.31.9, with attacher, provisioner, and resizer in AIO and snapshotter in a separate upstream container. |
 | Four controllers together | Build and CLI coverage, not complete in-cluster functional coverage. |
 | Standalone snapshot-controller and webhook | Build and image/CLI smoke checks, not complete functional coverage. |
-| Race detection, HA, upgrades and rollback | Not yet covered by a complete automated test suite. |
+| Race detection | Maintained entrypoint/config packages only; no lifecycle integration coverage. |
+| HA, upgrades and rollback | Not covered by a complete automated test suite. |
 | Vulnerabilities | Daily and PR image scans are report-only; success does not mean the images have no vulnerabilities. |
 
 ### Current limitations
+
+This branch preserves the entrypoint and flag code from `0e07ce4`; it excludes
+the runtime lifecycle work in `444a2b4`. Build verification does not establish
+coordinated shutdown, lease draining, or production readiness.
 
 - Hostpath e2e currently enables only attacher, provisioner, and resizer in AIO;
   snapshotter runs in a separate upstream container. It does not yet validate
@@ -142,7 +146,10 @@ establish that a controller works correctly in a cluster.
 ## Images and build environment
 
 A successful sync builds the following binaries under `bin/`. Running
-`make container` then produces local images with matching names:
+the inherited `make container BUILD_ARCH=arm64` (or `amd64`) target names
+local images as follows. It requires the verified builder for compilation and
+a Docker-capable packaging environment; this combined image path is not yet
+validated with the locked builder:
 
 | Local image | Purpose | Dockerfile |
 |-------------|---------|------------|
@@ -150,17 +157,21 @@ A successful sync builds the following binaries under `bin/`. Running
 | `snapshot-controller:latest` | Runs the cluster-wide snapshot controller separately. | Generated `cmd/snapshot-controller/Dockerfile` |
 | `snapshot-conversion-webhook:latest` | Runs the snapshot conversion webhook separately. | Generated `cmd/snapshot-conversion-webhook/Dockerfile` |
 
-All three currently use **`gcr.io/distroless/static:latest`** as their runtime
-base image. Go compilation happens outside these Dockerfiles; they copy the
-already-built binaries into a minimal image without a shell or package manager.
-CI installs Go on the runner to compile these binaries; the runtime image is
-not the build environment.
+All three use the same digest-pinned `gcr.io/distroless/static` runtime index
+from [`images.lock.json`](./tools/assembly/images.lock.json), with checked Linux
+amd64/arm64 manifests. One maintained template verifies the root Dockerfile and
+generates both standalone Dockerfiles. Go compilation happens outside these
+Dockerfiles; they copy the already-built binaries into a minimal image without
+a shell or package manager.
+The verify/build CI jobs compile in the digest-pinned Linux builder; the runtime
+image is not the build environment.
 
-The runtime base is not pinned by digest, and CI does not yet use a shared,
-digest-pinned builder image. The current Dockerfiles inherit the base image's
-root user rather than selecting a non-root user. Version/digest pinning and
-non-root execution remain future work, with socket permissions, certificate
-access, and listening ports to be validated before changing the runtime user.
+The Dockerfiles still inherit the base image's root user. Non-root execution
+remains future work, with socket permissions, certificate access, and listening
+ports to be validated before changing the runtime user. The image lock also pins
+the existing Kubernetes 1.31.9 regression node image and matching kind release;
+this is not a production support matrix. See the
+[image-input workflow](./tools/README.md#runtime-and-legacy-test-image-inputs).
 
 These local image names are development artifacts, not official registry pull
 locations or stable releases. Image build success does not imply that release
@@ -225,14 +236,15 @@ are integrated, the same image will serve the node pools with a different
 
 ### Requirements
 
-- **Source sync/build:** Linux (amd64 or arm64), Bash, Git, make, GNU command-line
-  tools (including sed, find, and xargs), Go, and Python with venv/pip support.
-  The sync installs `git-filter-repo` into the active virtual environment when
-  it is missing. Network access to upstream repositories and dependency services
-  is required.
-- **Versions exercised by CI:** Go **1.26.5** and Python **3.13**. These are
-  tested versions, not a claim of minimum compatibility with every earlier
-  Python or Go release.
+- **Source sync/build:** Python 3.9+ and Git on the host, plus a Linux container
+  engine. Local assembly and CI verify/build jobs select the same per-architecture
+  builder digest from [`build-environment.lock.json`](./tools/assembly/build-environment.lock.json).
+  It requires Go **1.26.5**, Python **3.13.5**, GCC **14.2.0**, and Git **2.47.3**.
+  These are selected build inputs, not a production compatibility certification.
+- **Python generation tools:** a fresh private environment installs only hashed
+  pip **26.2** and git-filter-repo **2.47.0** wheels. System pip and caller venvs
+  are not reused. Network access to the pinned image/wheels, upstream source
+  repositories, and Go dependency services is required.
 - **Image building:** `make container` currently invokes the Docker CLI and
   requires a running engine for both image building and verification.
 - **Cluster e2e:** additionally requires a Docker-capable Linux environment and
@@ -244,86 +256,37 @@ environment.
 
 ### Building the project locally
 
-After cloning the repo, run the following commands to start from scratch.
-Cleanup removes the generated assembly area and binaries, so do not keep manual
-changes there:
+For an isolated Linux assembly, including from macOS with a Linux container
+engine, explicitly preload the locked image, then use the isolated helper:
 
 ```bash
-set -euo pipefail
-./tools/scripts/cleanup.sh
-python3 -m venv .venv
-source .venv/bin/activate
-sync_log=$(mktemp "${TMPDIR:-/tmp}/csi-sidecars-sync.XXXXXX")
-./tools/scripts/sync.sh 2>&1 | tee "$sync_log"
-printf 'Sync log: %s\n' "$sync_log"
+podman pull "$(python3 -B tools/scripts/build_environment.py image)"
+python3 -B tools/scripts/isolated_sync.py --engine podman
 ```
 
-`pipefail` preserves a failing sync's exit status instead of reporting only
-`tee`'s status. The tracked [tools/sync.log](./tools/sync.log) is a historical
-reference, not the output of your current run; the example writes a new log
-instead of overwriting it.
+Use `docker pull` and `--engine docker` for Docker. Arbitrary image overrides
+are rejected for fresh assembly. `--tooling-only` exercises tooling tests,
+gofmt, and license checks without needing an adopted dependency bundle.
 
-The sync script clones each sidecar repo preserving their commit history
-(using `git-filter-repo`). The merged history is available at `tmp/csi-sidecars/`;
-`pkg/<sidecar>/` contains the processed source files, not a Git checkout.
+This copies tracked working files and new maintained files under `tools/` to a
+fresh `.work/assembly-*/source` directory, then runs sync only on that copy. It
+preserves edits, leaves developer caches and unrelated untracked files out, and
+retains the assembly log and source for diagnosis. It does not mount the original
+checkout, kubeconfig, or engine socket into the container. A fresh run also
+executes bounded maintained-package race tests, vet, and the README CLI smoke
+check. Normal sync consumes the locally activated source and canonical dependency
+locks under `tools/assembly/`, without update or candidate-selection flags.
+Builder tools, shared runtime images, and the selected legacy Kubernetes node
+image are locked; full build/release acceptance remains open. This helper is not
+a release guarantee.
 
-To change which sidecars are synced or from which branch, edit
-[`tools/scripts/sidecars.conf`](./tools/scripts/sidecars.conf). Makefile
-shortcuts wrap the same scripts: `make sync` and `make clean`.
-
-The sync retries `go mod tidy` and `go work vendor` up to three times for
-recognized transient proxy/checksum-server transport errors, waiting 5 and 10
-seconds between attempts. Checksum verification remains enabled; integrity
-failures and other deterministic errors fail immediately. The entire sync is
-not retried because its repository transformations are not safe to restart.
-
-See [CODE_LAYOUT.md](./CODE_LAYOUT.md) for the dual-layer layout that separates
-the hand-maintained `tools/` source of truth from the generated assembly area.
+See [tools/README.md](./tools/README.md) for update, replay, packaging, and branch-specific validation details.
 
 ### Building the project using CI
 
-GitHub Actions runs presubmit checks for pull requests and pushes to `main`.
-Use the local commands below to exercise the build and tooling checks.
-[act](https://github.com/nektos/act) is an optional workflow debugging tool, not
-a guaranteed reproduction of the full CI environment: workflow event/branch
-filters, runner images, and Docker/privileged e2e setup must also be accounted
-for.
-
-The presubmit workflow (`.github/workflows/presubmit.yaml`) has these jobs:
-
-- `verify` — code-quality gates on the hand-maintained source of truth under
-  `tools/`: `gofmt`, Apache-2.0 boilerplate license headers, and
-  `shellcheck` (severity `warning`) on the scripts we own, plus regression
-  tests for artifact verification and dependency retries. This lint job excludes
-  the generated assembly area (`cmd/`, `pkg/`, `staging/`). Upstream CI does not
-  validate our transformations or unified dependencies; restoring the full
-  upstream unit suites against the assembled tree remains necessary.
-- `build` — runs the full sync, builds all three binaries, runs `go test` and
-  `go vet` over the hand-maintained packages, and validates the marked README
-  arguments against the assembled AIO CLI.
-- `e2e-hostpath` — runs the Hostpath CSI driver e2e suite via `.prow.sh`.
-
-Supplementary workflows: `trivy.yaml` builds all three images and checks each
-entrypoint, packaged executable, and component-specific help before performing
-a report-only vulnerability scan; `codespell.yml` checks spelling.
-
-After a successful sync, run the artifact checks locally with:
-
-```bash
-set -euo pipefail
-python3 tools/scripts/verify_artifacts.py cli
-make container
-python3 tools/scripts/verify_artifacts.py images
-```
-
-The smoke checks require no Kubernetes cluster or CSI socket. The image checks
-run with container networking disabled and verify that `--help` exits cleanly;
-they do not replace controller integration tests. Run the tooling regression
-tests without assembly or a container engine using:
-
-```bash
-python3 -B -m unittest discover -s tools/scripts -p '*_test.py'
-```
+Presubmit verify/build jobs use the locked helper for tooling, assembly,
+maintained-package race tests, vet, and CLI checks. The legacy hostpath E2E job
+is not migrated to that helper and has not been validated for this branch.
 
 ### E2E tests through the Hostpath CSI Driver
 
