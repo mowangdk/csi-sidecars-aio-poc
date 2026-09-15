@@ -22,6 +22,7 @@ import unittest
 from unittest.mock import patch
 
 import verify_artifacts as verify
+from image_inputs_test import fixture as image_fixture
 
 
 def example(body):
@@ -76,6 +77,8 @@ class ImageTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
+        image_fixture(self.root)
+        verify.image_inputs.dockerfiles(self.root, generate=True)
         (self.root / "bin").mkdir()
         self.command = "snapshot-controller"
         self.contents = b"expected snapshot-controller executable"
@@ -121,6 +124,12 @@ class ImageTests(unittest.TestCase):
     def test_correct_image(self):
         self.verify_image()
         self.assert_cleaned_up()
+
+    def test_unlocked_dockerfile_fails_before_container_operations(self):
+        (self.root / "cmd/snapshot-controller/Dockerfile").write_text("FROM mutable:latest\n")
+        with self.assertRaisesRegex(ValueError, "locked runtime template"):
+            self.verify_image()
+        self.assertEqual(self.calls, [])
 
     def test_rejects_aio_entrypoint_under_snapshot_tag(self):
         self.entrypoint = ["/csi-sidecars"]

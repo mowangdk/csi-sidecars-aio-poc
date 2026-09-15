@@ -26,6 +26,8 @@ import subprocess
 import sys
 import tempfile
 
+import image_inputs
+
 
 ROOT = Path(__file__).resolve().parents[2]
 # A distinct flag from each command, not just the shared logging flags.
@@ -86,6 +88,7 @@ def verify_cli(root):
 
 
 def verify_image(root, engine, command, tag):
+    image_inputs.dockerfiles(root)
     image = f"{command}:{tag}"
     binary = root / "bin" / command
     if not binary.is_file():

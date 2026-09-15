@@ -21,9 +21,13 @@ export CSI_PROW_GO_VERSION_E2E="1.26.5"
 # - The version to use in kind
 # - After pulling the k8s codebase, the tag to checkou to.
 #
-# Therefore, to keep this up to date:
-# - update release-tools/prow.sh's CSI_PROW_KIND_IMAGES variable to match upstream.
+# Legacy regression only, not a supported production Kubernetes matrix.
 export CSI_PROW_KUBERNETES_VERSION="1.31.9"
+# Select the exact patch image and its matching kind release before inherited defaults.
+# Separate assignment from export so a rejected lock stops before sourcing Prow.
+CSI_PROW_KIND_IMAGES=$(python3 -B tools/scripts/image_inputs.py test-image --kubernetes "${CSI_PROW_KUBERNETES_VERSION}")
+CSI_PROW_KIND_VERSION=$(python3 -B tools/scripts/image_inputs.py kind-version --kubernetes "${CSI_PROW_KUBERNETES_VERSION}")
+export CSI_PROW_KIND_IMAGES CSI_PROW_KIND_VERSION
 export CSI_PROW_DEPLOYMENT_SUFFIX=""
 export CSI_PROW_DRIVER_VERSION="v1.12.1"
 # This variable controls the CRDs for snapshotter
