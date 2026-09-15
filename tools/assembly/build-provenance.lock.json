@@ -1,0 +1,210 @@
+{
+  "local_changes": {
+    "build.make": {
+      "entry": {
+        "mode": "100644",
+        "sha256": "59baa4a4d4f0a5d9175adff03fbc9087ed7623b4b2cb338d6283bb1d6866a795"
+      },
+      "reason": "Legacy hack package exclusions and disabled aggregate shellcheck."
+    },
+    "prow.sh": {
+      "entry": {
+        "mode": "100755",
+        "sha256": "c93acb6465dce11d4c4e8ab81625d1d1e4936c5bc57ad1e6c1af98aa61dccbf2"
+      },
+      "reason": "Local platform downloads, kind versions, URL snapshot installation, and build platform forwarding."
+    }
+  },
+  "root_files": {
+    ".cloudbuild.sh": {
+      "mode": "100755",
+      "sha256": "a447285f443fb889d6e4277458c15f4196b64236372bf24d24f9c9b8164bd320"
+    },
+    ".prow.sh": {
+      "mode": "100755",
+      "sha256": "cf6164ac3997ef6bdb93f4e37f5e29809c6471d1ed3da82aa15e07d4b985aaf1"
+    },
+    "Dockerfile": {
+      "mode": "100644",
+      "sha256": "b41a6b3e1cecc7ad6943eafa106d22a007a583771d1306d8f03f5868523461b0"
+    },
+    "Makefile": {
+      "mode": "100644",
+      "sha256": "d3d02b710222038a0b388f0b6de301077596d02b58fab5fd5e48f72ed08d2368"
+    }
+  },
+  "schema_version": 1,
+  "upstream": {
+    "commit": "379a1bb9b001c0d62a091a21f1a4efaf42987248",
+    "files": {
+      ".github/dependabot.yaml": {
+        "mode": "100644",
+        "sha256": "ef529bb99d266e3d1282d59a47a38cf30a34a7d61ed93933e0389322abb6e7d1"
+      },
+      ".github/workflows/codespell.yml": {
+        "mode": "100644",
+        "sha256": "d4076cd6632d1f6492f7d2fc5e20e7a0e411781215a3b295a5bdba7bc5cdea03"
+      },
+      ".github/workflows/trivy.yaml": {
+        "mode": "100644",
+        "sha256": "e4d6ca14dfbc06767f236fb94ac70374bbb4f171e8e808de197376ca207a1619"
+      },
+      ".prow.sh": {
+        "mode": "100755",
+        "sha256": "1fff634a6135523a13006814e2615d3f8843125d6894f8284cc4b01bd20e3bcc"
+      },
+      "CONTRIBUTING.md": {
+        "mode": "100644",
+        "sha256": "5c0979a4d6b7d703b84ff7112535b34722263083602a88cd415978bbfd17f52b"
+      },
+      "KUBERNETES_CSI_OWNERS_ALIASES": {
+        "mode": "100644",
+        "sha256": "733c906667a91da6f7b6c8c6b9e5f30ac5cd2782487c3f272fc86a0d3b8a63a4"
+      },
+      "LICENSE": {
+        "mode": "100644",
+        "sha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1"
+      },
+      "OWNERS": {
+        "mode": "100644",
+        "sha256": "c816c0412dcaeeebcca48689361fe02704273df9fe142a4d2a43e1ed01ead2d4"
+      },
+      "OWNERS_ALIASES": {
+        "mode": "120000",
+        "sha256": "69770d4ea36efcc6f2117e29ff17b99327060191c615952f3fd4d97d07b1b7b5",
+        "target": "KUBERNETES_CSI_OWNERS_ALIASES"
+      },
+      "README.md": {
+        "mode": "100644",
+        "sha256": "5b15af1cda29985787a9bfa8a2d7dbbb65a8d716f3a4c35489e97b04fbae6361"
+      },
+      "RELEASE.md": {
+        "mode": "100644",
+        "sha256": "ff302f926d365dd174451be310e0dad80cae4df37a1cdff9e9afcf4b4925dacc"
+      },
+      "SECURITY_CONTACTS": {
+        "mode": "100644",
+        "sha256": "1befefa2ad41564e35765b6e61f4cb9ccd1efb28f62a24339b6a413f04dab160"
+      },
+      "SIDECAR_RELEASE_PROCESS.md": {
+        "mode": "100644",
+        "sha256": "e56e3540cc211e10e37688c7113e00014854f9efb330bb57dad633db8051ac74"
+      },
+      "boilerplate/boilerplate.Dockerfile.txt": {
+        "mode": "100644",
+        "sha256": "524a47c43b1ebc471327461f4878533ddc337d88c0bcd8d5bf8ddae8aefb2eae"
+      },
+      "boilerplate/boilerplate.Makefile.txt": {
+        "mode": "100644",
+        "sha256": "7fb2cb915e8d0571c955e8d3a609268864fc25dafbce8a8e11daad061fc8eefe"
+      },
+      "boilerplate/boilerplate.bzl.txt": {
+        "mode": "100644",
+        "sha256": "7fb2cb915e8d0571c955e8d3a609268864fc25dafbce8a8e11daad061fc8eefe"
+      },
+      "boilerplate/boilerplate.go.txt": {
+        "mode": "100644",
+        "sha256": "6ead6c6dde980f9724a59b45927b9ad3bd45f13d592cd09567750a335d99eb59"
+      },
+      "boilerplate/boilerplate.py": {
+        "mode": "100755",
+        "sha256": "c3c9ce1a478ec82cc5a009224d8fc04d7fed80e7cc20b06a4c1b84db309bf076"
+      },
+      "boilerplate/boilerplate.py.txt": {
+        "mode": "100644",
+        "sha256": "524a47c43b1ebc471327461f4878533ddc337d88c0bcd8d5bf8ddae8aefb2eae"
+      },
+      "boilerplate/boilerplate.sh.txt": {
+        "mode": "100644",
+        "sha256": "7fb2cb915e8d0571c955e8d3a609268864fc25dafbce8a8e11daad061fc8eefe"
+      },
+      "build.make": {
+        "mode": "100644",
+        "sha256": "b2ab2676e14ccc22636ea928954f595469a72f30175096e323cc5a547981ff28"
+      },
+      "cloudbuild.sh": {
+        "mode": "100755",
+        "sha256": "1af85257a548f77b52bea6d675278b1c57d12c5b075924a4409d8d27f7aa3955"
+      },
+      "cloudbuild.yaml": {
+        "mode": "100644",
+        "sha256": "e7a1829cda7f042a4d41e9ce1ce196fd7f7183c7ab19c9a9b3cf06eff7444e45"
+      },
+      "code-of-conduct.md": {
+        "mode": "100644",
+        "sha256": "f364dcd6b58ebf020cec3fe415e726ab16425b4d0344ac6b551d2769dd01b251"
+      },
+      "contrib/get_supported_version_csi-sidecar.py": {
+        "mode": "100644",
+        "sha256": "a9e3c6932a6894833c4124855046945b850ae8608cdda303e0cc1c0e49c697ce"
+      },
+      "filter-junit.go": {
+        "mode": "100644",
+        "sha256": "1ed1be9c9b0b67e3135e43e264bdd34078b896f67541d70fe2572a5b26b65437"
+      },
+      "generate-patch-release-notes.sh": {
+        "mode": "100755",
+        "sha256": "7b3c7f92d19f44cd40dd37de4ce3b5cd430c6a75950343e908abfa47b41f78b2"
+      },
+      "go-get-kubernetes.sh": {
+        "mode": "100755",
+        "sha256": "5471476b6ec08f20a43594af32f0133c2922acc0665fa837aac4d3aad8a9900f"
+      },
+      "go-modules-targeted-update.sh": {
+        "mode": "100755",
+        "sha256": "49255a7065a8c98e6c70e6d6bb1467a4a6f115260b92a7c5149f46b415cc003d"
+      },
+      "go-modules-update.sh": {
+        "mode": "100755",
+        "sha256": "d028f967bfee57ef4dd4473008a55685d8d04512477708730477b79f2c48454f"
+      },
+      "prow.sh": {
+        "mode": "100755",
+        "sha256": "3101503eac785ba0ce33f2e855f928818394e20991fe2facaf6ba55c21e62803"
+      },
+      "pull-test.sh": {
+        "mode": "100755",
+        "sha256": "e1ebf7917b0042839b2e452bc286a4aab4da12048782bfb64a2243947edcdfa2"
+      },
+      "update-vendor.sh": {
+        "mode": "100755",
+        "sha256": "40401f6a5ed779f62590302b11e25a1c3997d9d78a658a1ec7ab8133f1f1b272"
+      },
+      "util.sh": {
+        "mode": "100755",
+        "sha256": "78e7938500934a9c1004bbb08e8fb01b7a57b9340259b601d03ddce56fb3161c"
+      },
+      "verify-boilerplate.sh": {
+        "mode": "100755",
+        "sha256": "9a0323cbe731b3a260d11da0403310a91604745b93bdd97c95bfea457746a198"
+      },
+      "verify-go-version.sh": {
+        "mode": "100755",
+        "sha256": "1828658201de5ea51a167b2c67871cdef299f6500288ba7609f552e5eae4ef0e"
+      },
+      "verify-logcheck.sh": {
+        "mode": "100755",
+        "sha256": "44219e11c1d246fb40cbb11a82bae66eff9cf171ae8081cb055e5aec9cae7150"
+      },
+      "verify-shellcheck.sh": {
+        "mode": "100755",
+        "sha256": "db02d3a169c2b1a2fe9d27de11ccc92a2f84a4a14720d00aa6d87c9cba82673a"
+      },
+      "verify-spelling.sh": {
+        "mode": "100755",
+        "sha256": "d3754f37d2477f6685241e955002eb38d941e252a7925803094a472b9d5b79d3"
+      },
+      "verify-subtree.sh": {
+        "mode": "100755",
+        "sha256": "4037bc8f30c6aea5e8ac8fa442a718d8aa78fc2846d7098e545d1e42fee5ab61"
+      },
+      "verify-vendor.sh": {
+        "mode": "100755",
+        "sha256": "ab810c9c4f04f100e70ba04bc089b87a37100bd82e0e87987b0c7a1e7badd909"
+      }
+    },
+    "project_import_commit": "dd1a3e583140399704654e02514122718da2a19f",
+    "repository": "https://github.com/kubernetes-csi/csi-release-tools",
+    "tree": "74aa8aff92eea2c4889162eeee65341d34e7688d"
+  }
+}

@@ -51,7 +51,8 @@ type AIOConfiguration struct {
 	ResizeTimeout time.Duration
 	ModifyTimeout time.Duration
 
-	Controllers string
+	Controllers     string
+	ShutdownTimeout time.Duration
 
 	AttacherConfiguration    attacherconfiguration.AttacherConfiguration
 	SnapshotterConfiguration SnapshotterConfiguration
@@ -70,6 +71,7 @@ func RegisterAIOFlags(flags *flag.FlagSet) {
 	flags.DurationVar(&Configuration.RetryIntervalStart, "retry-interval-start", time.Second, "Initial retry interval of failed create volume or deletion. It doubles with each failure, up to retry-interval-max.")
 	flags.DurationVar(&Configuration.RetryIntervalMax, "retry-interval-max", 5*time.Minute, "Maximum retry interval of failed create volume or deletion.")
 	flags.StringVar(&Configuration.Controllers, "controllers", "", "A comma-separated list of controllers to enable. The possible values are: [resizer,attacher,provisioner,snapshotter]")
+	flags.DurationVar(&Configuration.ShutdownTimeout, "shutdown-timeout", 25*time.Second, "Maximum time to wait for controllers to stop after cancellation. Must be positive; Pod termination grace must exceed this plus log-flush time.")
 	flags.DurationVar(&Configuration.ResizeTimeout, "resizer-resize-timeout", 10*time.Second, "Timeout for ControllerExpandVolume calls issued by the resizer controller.")
 	flags.DurationVar(&Configuration.ModifyTimeout, "resizer-modify-timeout", 10*time.Second, "Timeout for ControllerModifyVolume calls issued by the resizer controller.")
 }

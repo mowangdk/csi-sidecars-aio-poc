@@ -1,4 +1,6 @@
 /bin/
+/.work/
+/.assembly-env/
 .venv
 venv
 .DS_Store

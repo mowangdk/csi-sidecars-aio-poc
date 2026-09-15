@@ -36,6 +36,7 @@ func TestRegisterAIOFlagsUsesCallerFlagSet(t *testing.T) {
 		"retry-interval-start",
 		"retry-interval-max",
 		"controllers",
+		"shutdown-timeout",
 	}
 	for _, name := range expected {
 		if fs.Lookup(name) == nil {
@@ -179,6 +180,7 @@ func TestRegisterAIOFlagsDefaults(t *testing.T) {
 		{"retry-interval-start", time.Second.String()},
 		{"retry-interval-max", (5 * time.Minute).String()},
 		{"controllers", ""},
+		{"shutdown-timeout", (25 * time.Second).String()},
 	}
 	for _, tc := range tests {
 		f := fs.Lookup(tc.name)
