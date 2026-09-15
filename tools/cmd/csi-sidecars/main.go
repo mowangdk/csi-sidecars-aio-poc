@@ -20,17 +20,21 @@ import (
 	"context"
 	goflag "flag"
 	"fmt"
+	"os"
+	"os/signal"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
-	"golang.org/x/sync/errgroup"
-
-	logsapi "k8s.io/component-base/logs/api/v1"
+	"github.com/kubernetes-csi/csi-lib-utils/connection"
 	"github.com/kubernetes-csi/csi-lib-utils/standardflags"
 	"github.com/kubernetes-csi/csi-sidecars/cmd/csi-sidecars/config"
 	attacherconfig "github.com/kubernetes-csi/csi-sidecars/pkg/attacher/cmd/csi-attacher/config"
+	aioruntime "github.com/kubernetes-csi/csi-sidecars/pkg/runtime"
 	flag "github.com/spf13/pflag"
+	logsapi "k8s.io/component-base/logs/api/v1"
+	_ "k8s.io/component-base/logs/json/register"
 	"sigs.k8s.io/sig-storage-lib-external-provisioner/v13/controller"
 
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
@@ -72,15 +76,14 @@ var (
 	reconcileSync               *time.Duration
 
 	// Snapshotter specific
-	snapshotNamePrefix                *string
-	snapshotNameUUIDLength            *int
-	snapshotterCSITimeout            *time.Duration
-	snapshotterThreads               *int
-	groupSnapshotNamePrefix           *string
-	groupSnapshotNameUUIDLength       *int
-	snapshotterEnableNodeDeployment  *bool
-	snapshotterExtraCreateMetadata   *bool
-
+	snapshotNamePrefix              *string
+	snapshotNameUUIDLength          *int
+	snapshotterCSITimeout           *time.Duration
+	snapshotterThreads              *int
+	groupSnapshotNamePrefix         *string
+	groupSnapshotNameUUIDLength     *int
+	snapshotterEnableNodeDeployment *bool
+	snapshotterExtraCreateMetadata  *bool
 )
 
 var (
@@ -231,6 +234,18 @@ func validateControllers(enabled map[string]bool) error {
 }
 
 func main() {
+	code := 0
+	if err := run(); err != nil {
+		klog.ErrorS(err, "AIO stopped")
+		code = 1
+	}
+	klog.FlushAndExit(klog.ExitFlushTimeout, code)
+}
+
+func run() error {
+	if err := logsapi.AddFeatureGates(utilfeature.DefaultMutableFeatureGate); err != nil {
+		return fmt.Errorf("register logging feature gates: %w", err)
+	}
 	flag.Var(utilflag.NewMapStringBool(&featureGates), "feature-gates", "A set of key=value pairs that describe feature gates for alpha/experimental features. "+
 		"Options are:\n"+strings.Join(utilfeature.DefaultFeatureGate.KnownFeatures(), "\n"))
 
@@ -245,60 +260,62 @@ func main() {
 	flag.CommandLine.AddGoFlagSet(goflag.CommandLine)
 	flag.Set("logtostderr", "true")
 
-	// Resizer specific
-	// fg := featuregate.NewFeatureGate()
-	// logsapi.AddFeatureGates(fg)
-	// c := logsapi.NewLoggingConfiguration()
-	// logsapi.AddGoFlags(c, goflag.CommandLine)
 	logs.InitLogs()
-
 	flag.Parse()
-
-	copyFlagsFromConfigToGlobalVars()
-
-	// Resizier specific
-	/*if err := logsapi.ValidateAndApply(c, fg); err != nil {
-		klog.ErrorS(err, "LoggingConfiguration is invalid")
-		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
-	}*/
-
+	if standardflags.Configuration.ShowVersion {
+		fmt.Printf("csi-sidecars %s\n", version)
+		return nil
+	}
 	if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(featureGates); err != nil {
-		klog.Fatal(err)
+		return fmt.Errorf("feature gates: %w", err)
 	}
-
-	errs, ctx := errgroup.WithContext(context.Background())
-
+	if err := logsapi.ValidateAndApply(c, utilfeature.DefaultFeatureGate); err != nil {
+		return fmt.Errorf("logging configuration: %w", err)
+	}
 	controllersToEnable := parseControllers(config.Configuration.Controllers)
-	if err := validateControllers(controllersToEnable); err != nil {
-		klog.Fatal(err)
+	if err := validateStartup(controllersToEnable, config.Configuration.ShutdownTimeout,
+		standardflags.Configuration.HttpEndpoint, standardflags.Configuration.MetricsAddress); err != nil {
+		return err
 	}
+	copyFlagsFromConfigToGlobalVars()
+	// The upstream limit is process-wide. Preserve its attacher-enabled behavior,
+	// but initialize it before other runners can issue RPCs through the logger.
+	if controllersToEnable["attacher"] {
+		connection.SetMaxGRPCLogLength(*maxGRPCLogLength)
+	}
+	signals := make(chan os.Signal, 2)
+	signal.Notify(signals, syscall.SIGTERM, syscall.SIGINT)
+	defer signal.Stop(signals)
+	return aioruntime.SuperviseSignals(context.Background(), signals,
+		config.Configuration.ShutdownTimeout, selectedRunners(controllersToEnable))
+}
 
-	// TODO: Get main from each sidecar to return an error so we can handle it here
-	if _, ok := controllersToEnable["attacher"]; ok {
-		errs.Go(func() error {
-			attacher_main(ctx)
-			return fmt.Errorf("Attacher stopped")
-		})
+func validateStartup(enabled map[string]bool, shutdownTimeout time.Duration, endpoint, metrics string) error {
+	if err := validateControllers(enabled); err != nil {
+		return err
 	}
-	if _, ok := controllersToEnable["provisioner"]; ok {
-		errs.Go(func() error {
-			provisioner_main(ctx)
-			return fmt.Errorf("Provisioner stopped")
-		})
+	if shutdownTimeout <= 0 {
+		return fmt.Errorf("--shutdown-timeout must be positive")
 	}
-	if _, ok := controllersToEnable["resizer"]; ok {
-		errs.Go(func() error {
-			resizer_main(ctx)
-			return fmt.Errorf("Resizer stopped")
-		})
+	if endpoint != "" && metrics != "" {
+		return fmt.Errorf("--http-endpoint and --metrics-address are mutually exclusive")
 	}
-	if _, ok := controllersToEnable["snapshotter"]; ok {
-		errs.Go(func() error {
-			snapshotter_main(ctx)
-			return fmt.Errorf("Snapshotter stopped")
-		})
+	if len(enabled) > 1 && (endpoint != "" || metrics != "") {
+		return fmt.Errorf("HTTP endpoints are not supported with multiple controllers")
 	}
-	if err := errs.Wait(); err != nil {
-		panic(err)
+	return nil
+}
+
+func selectedRunners(enabled map[string]bool) map[string]aioruntime.Runner {
+	available := map[string]aioruntime.Runner{
+		"attacher":    attacher_main,
+		"provisioner": provisioner_main,
+		"resizer":     resizer_main,
+		"snapshotter": snapshotter_main,
 	}
+	selected := make(map[string]aioruntime.Runner, len(enabled))
+	for name := range enabled {
+		selected[name] = available[name]
+	}
+	return selected
 }

@@ -1,3 +1,19 @@
+/*
+Copyright 2024 The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package config
 
 import (
@@ -20,6 +36,7 @@ func TestRegisterAIOFlagsUsesCallerFlagSet(t *testing.T) {
 		"retry-interval-start",
 		"retry-interval-max",
 		"controllers",
+		"shutdown-timeout",
 	}
 	for _, name := range expected {
 		if fs.Lookup(name) == nil {
@@ -163,6 +180,7 @@ func TestRegisterAIOFlagsDefaults(t *testing.T) {
 		{"retry-interval-start", time.Second.String()},
 		{"retry-interval-max", (5 * time.Minute).String()},
 		{"controllers", ""},
+		{"shutdown-timeout", (25 * time.Second).String()},
 	}
 	for _, tc := range tests {
 		f := fs.Lookup(tc.name)

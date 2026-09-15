@@ -1,6 +1,26 @@
+/*
+Copyright 2024 The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package main
 
 import (
+	"context"
+	"encoding/json"
+	"os"
+	"os/exec"
 	"reflect"
 	"strings"
 	"testing"
@@ -235,6 +255,110 @@ func TestCopyFlagsFromConfigToGlobalVars(t *testing.T) {
 	assertStrPtr(t, "groupSnapshotNamePrefix", groupSnapshotNamePrefix, config.Configuration.SnapshotterConfiguration.GroupSnapshotNamePrefix)
 	assertIntPtr(t, "groupSnapshotNameUUIDLength", groupSnapshotNameUUIDLength, config.Configuration.SnapshotterConfiguration.GroupSnapshotNameUUIDLength)
 	assertBoolPtr(t, "snapshotterExtraCreateMetadata", snapshotterExtraCreateMetadata, config.Configuration.SnapshotterConfiguration.ExtraCreateMetadata)
+}
+
+func TestSelectedRunners(t *testing.T) {
+	for _, selection := range []string{"attacher", "provisioner,resizer", "attacher,provisioner,resizer,snapshotter"} {
+		enabled := parseControllers(selection)
+		runners := selectedRunners(enabled)
+		if len(runners) != len(enabled) {
+			t.Fatalf("selection %q produced %d runners", selection, len(runners))
+		}
+		for name := range enabled {
+			if runners[name] == nil {
+				t.Fatalf("missing runner %s", name)
+			}
+		}
+	}
+}
+
+func TestValidateStartup(t *testing.T) {
+	for _, tc := range []struct {
+		name, controllers, endpoint, metrics, want string
+		timeout                                    time.Duration
+	}{
+		{"single endpoint", "attacher", ":8080", "", "", time.Second},
+		{"single legacy endpoint", "attacher", "", ":8080", "", time.Second},
+		{"multiple without endpoints", "attacher,resizer", "", "", "", time.Second},
+		{"both endpoints", "attacher", ":8080", ":8081", "mutually exclusive", time.Second},
+		{"multiple HTTP", "attacher,resizer", ":8080", "", "multiple controllers", time.Second},
+		{"multiple metrics", "attacher,resizer", "", ":8080", "multiple controllers", time.Second},
+		{"zero timeout", "attacher", "", "", "must be positive", 0},
+		{"negative timeout", "attacher", "", "", "must be positive", -time.Second},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateStartup(parseControllers(tc.controllers), tc.timeout, tc.endpoint, tc.metrics)
+			if tc.want == "" && err != nil {
+				t.Fatal(err)
+			}
+			if tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)) {
+				t.Fatalf("error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// Each invocation gets fresh flag, logging and feature-gate globals.
+func TestCLIProcess(t *testing.T) {
+	if os.Getenv("CSI_AIO_CLI_HELPER") != "1" {
+		return
+	}
+	for i, arg := range os.Args {
+		if arg == "--" {
+			os.Args = append([]string{"csi-sidecars"}, os.Args[i+1:]...)
+			main()
+			panic("main returned instead of exiting")
+		}
+	}
+	t.Fatal("helper missing argument delimiter")
+}
+
+func TestCLIValidationBeforeClients(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		args    []string
+		want    string
+		success bool
+	}{
+		{"version", []string{"--version"}, "csi-sidecars unknown", true},
+		{"version ignores selection", []string{"--version", "--controllers=invalid"}, "csi-sidecars unknown", true},
+		{"help", []string{"--help"}, "shutdown-timeout", true},
+		{"missing selection", nil, "no controllers enabled", false},
+		{"invalid logging", []string{"--controllers=attacher", "--logging-format=invalid"}, "logging configuration", false},
+		{"zero timeout", []string{"--controllers=attacher", "--shutdown-timeout=0s"}, "must be positive", false},
+		{"endpoint conflict", []string{"--controllers=attacher", "--http-endpoint=:8000", "--metrics-address=:8001"}, "mutually exclusive", false},
+		{"multiple endpoints", []string{"--controllers=attacher,resizer", "--http-endpoint=:8000"}, "multiple controllers", false},
+		{"JSON errors", []string{"--controllers=invalid", "--logging-format=json", "--v=5"}, "unknown controllers", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			cmd := exec.CommandContext(ctx, os.Args[0], append([]string{"-test.run=^TestCLIProcess$", "--"}, tc.args...)...)
+			cmd.Env = append(os.Environ(), "CSI_AIO_CLI_HELPER=1")
+			output, err := cmd.CombinedOutput()
+			if ctx.Err() != nil {
+				t.Fatalf("CLI timed out: %s", output)
+			}
+			if (err == nil) != tc.success || !strings.Contains(string(output), tc.want) {
+				t.Fatalf("exit=%v output=%s; want success=%v and %q", err, output, tc.success, tc.want)
+			}
+			if strings.HasPrefix(tc.name, "version") && strings.Count(string(output), tc.want) != 1 {
+				t.Fatalf("version printed more than once: %s", output)
+			}
+			if tc.name == "JSON errors" {
+				found := false
+				for _, line := range strings.Split(string(output), "\n") {
+					var entry map[string]any
+					if json.Unmarshal([]byte(line), &entry) == nil && entry["msg"] == "AIO stopped" {
+						found = true
+					}
+				}
+				if !found {
+					t.Fatalf("JSON logging not applied: %s", output)
+				}
+			}
+		})
+	}
 }
 
 func assertStrPtr(t *testing.T, name string, got *string, want string) {

@@ -1,3 +1,19 @@
+/*
+Copyright 2024 The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package config
 
 import (
@@ -35,7 +51,8 @@ type AIOConfiguration struct {
 	ResizeTimeout time.Duration
 	ModifyTimeout time.Duration
 
-	Controllers string
+	Controllers     string
+	ShutdownTimeout time.Duration
 
 	AttacherConfiguration    attacherconfiguration.AttacherConfiguration
 	SnapshotterConfiguration SnapshotterConfiguration
@@ -54,6 +71,7 @@ func RegisterAIOFlags(flags *flag.FlagSet) {
 	flags.DurationVar(&Configuration.RetryIntervalStart, "retry-interval-start", time.Second, "Initial retry interval of failed create volume or deletion. It doubles with each failure, up to retry-interval-max.")
 	flags.DurationVar(&Configuration.RetryIntervalMax, "retry-interval-max", 5*time.Minute, "Maximum retry interval of failed create volume or deletion.")
 	flags.StringVar(&Configuration.Controllers, "controllers", "", "A comma-separated list of controllers to enable. The possible values are: [resizer,attacher,provisioner,snapshotter]")
+	flags.DurationVar(&Configuration.ShutdownTimeout, "shutdown-timeout", 25*time.Second, "Maximum time to wait for controllers to stop after cancellation. Must be positive; Pod termination grace must exceed this plus log-flush time.")
 	flags.DurationVar(&Configuration.ResizeTimeout, "resizer-resize-timeout", 10*time.Second, "Timeout for ControllerExpandVolume calls issued by the resizer controller.")
 	flags.DurationVar(&Configuration.ModifyTimeout, "resizer-modify-timeout", 10*time.Second, "Timeout for ControllerModifyVolume calls issued by the resizer controller.")
 }
@@ -76,4 +94,3 @@ func RegisterSnapshotterFlags(flags *flag.FlagSet, c *SnapshotterConfiguration) 
 func RegisterSnapshotterFlagsWithPrefix(flags *flag.FlagSet, c *SnapshotterConfiguration) {
 	registerSnapshotterFlags(flags, c, "snapshotter-")
 }
-

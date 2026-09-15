@@ -1,7 +1,10 @@
 /bin/
+/.work/
+/.assembly-env/
 .venv
 venv
 .DS_Store
+__pycache__/
 
 !/tools/sync.log
 !.prow.sh.log
