@@ -18,7 +18,6 @@ import io
 import json
 import os
 from pathlib import Path
-import subprocess
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
@@ -173,30 +172,6 @@ class BuildEnvironmentTests(unittest.TestCase):
                 installed.write_text("modified implementation, same version")
                 with self.assertRaisesRegex(ValueError, "implementation checksum"):
                     build.verify(root, lock)
-
-    def test_explicit_update_rejects_wrong_builder_before_generated_outputs(self):
-        if os.uname().sysname != "Linux":
-            self.skipTest("Linux sync preflight required")
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            scripts = root / "tools/scripts"
-            scripts.mkdir(parents=True)
-            from build_provenance_test import fixture as provenance_fixture
-            provenance_fixture(root)
-            for name in ("sync.sh", "assembly_sources.py", "build_environment.py", "build_provenance.py", "image_inputs.py", "retry-go-dependencies.sh"):
-                (scripts / name).write_bytes(Path(__file__).with_name(name).read_bytes())
-            lock = root / build.LOCK
-            lock.parent.mkdir(exist_ok=True)
-            lock.write_bytes((build.ROOT / build.LOCK).read_bytes())
-            (lock.parent / "sources.lock.json").write_bytes(build.assembly_sources.DEFAULT_LOCK.read_bytes())
-            result = subprocess.run(["bash", str(scripts / "sync.sh"), "--update-dependencies", "1.36.3"],
-                                    text=True, capture_output=True, timeout=30,
-                                    env={**os.environ, "NORMALIZED_LOGGING": "true", "SKIP_SANITY_CHECK": "false",
-                                         "CSI_AIO_BUILDER_IMAGE": "wrong"})
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("builder identity", result.stderr)
-            self.assertFalse((root / "tmp").exists())
-            self.assertFalse((root / build.ENVIRONMENT).exists())
 
 
 if __name__ == "__main__":

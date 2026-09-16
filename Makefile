@@ -3,22 +3,17 @@ all: build
 
 include release-tools/build.make
 
-# Project-owned recipe overrides; release-tools remains unchanged. GNU Make
-# reports these intentional overrides when loading this file. Inherited
-# prerequisites (including container/push -> build) remain connected.
-# Explicit target required: make build BUILD_ARCH=amd64 (or arm64).
-# The inherited release/push workflows are not a validated publication path.
-.PHONY: $(CMDS:%=build-%)
-$(CMDS:%=build-%): build-%:
-	@test -z '$(BUILD_PLATFORMS)' || { echo 'Use BUILD_ARCH with a separate assembly per target'; exit 1; }
-	@test '$(CMDS_DIR)' = cmd || { echo 'CMDS_DIR must remain cmd for locked Dockerfiles'; exit 1; }
-	python3 -B tools/scripts/build_binaries.py build --command $* --arch '$(BUILD_ARCH)'
+# The inherited release-tools build-% compiles each command with a plain
+# `go build` (stamping main.version from REV). Builds use the vendor/ directory
+# automatically when it is present, so a populated tree needs no sync first.
 
-# Regenerate the assembly area (cmd/, pkg/, staging/, go.mod/go.work) from the
-# upstream kubernetes-csi repositories. Requires Linux, see tools/scripts/sync.sh.
+# Regenerate the assembly area (cmd/, pkg/, staging/, go.mod/go.work, vendor/)
+# from the upstream kubernetes-csi repositories. Requires Linux and the locked
+# builder; see tools/scripts/sync.sh.
 .PHONY: sync
 sync:
-	./tools/scripts/sync.sh
+	@test -n '$(KUBERNETES)' || { echo 'Usage: make sync KUBERNETES=1.MINOR.PATCH'; exit 1; }
+	./tools/scripts/sync.sh --update-dependencies '$(KUBERNETES)'
 
 # Extend release-tools' `clean` (which only removes bin/) so it also removes
 # the generated assembly area; cleanup.sh leaves tools/ untouched.

@@ -16,7 +16,6 @@ import copy
 import json
 import os
 from pathlib import Path
-import platform
 import shutil
 import subprocess
 import tempfile
@@ -147,13 +146,12 @@ class DependencyCompatibilityTests(unittest.TestCase):
 
     def test_sync_checks_sources_graph_and_vendor_before_builds_without_bypass(self):
         script = Path(__file__).with_name("sync.sh").read_text()
-        self.assertIn("SKIP_SANITY_CHECK is no longer supported", script)
         self.assertNotIn("gomod-k8sapi", script)
         self.assertNotIn("s/v0.35.0/v0.35.2/g", script)
         checkpoints = ["checkout csi-lib-utils", "assembly_dependencies.py sources",
-                       "retry_go_dependencies go mod tidy", "assembly_dependencies.py graph",
-                       "retry_go_dependencies go work vendor", "assembly_dependencies.py vendor",
-                       "assembly_lock.py capture", "make build"]
+                       "assembly_dependencies.py seed", "retry_go_dependencies go mod tidy",
+                       "assembly_dependencies.py graph", "retry_go_dependencies go work vendor",
+                       "assembly_dependencies.py vendor", "make build"]
         positions = [script.index(checkpoint) for checkpoint in checkpoints]
         self.assertEqual(positions, sorted(positions))
         self.assertEqual(script.count("retry_go_dependencies go mod tidy"), 1)
@@ -231,26 +229,6 @@ class GoModuleFixtureTests(unittest.TestCase):
             paths[-1].unlink()
             with self.assertRaises(subprocess.CalledProcessError):
                 dependencies.source_documents(root)
-
-    def test_skip_environment_cannot_bypass_sync(self):
-        if platform.system() != "Linux":
-            self.skipTest("Linux sync preflight required")
-        script = Path(__file__).with_name("sync.sh").resolve()
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            scripts = root / "tools/scripts"
-            scripts.mkdir(parents=True)
-            for name in ("sync.sh", "assembly_sources.py", "retry-go-dependencies.sh"):
-                shutil.copy2(script.with_name(name), scripts / name)
-            lock = root / "tools/assembly/sources.lock.json"
-            lock.parent.mkdir()
-            lock.write_bytes(dependencies.assembly_sources.DEFAULT_LOCK.read_bytes())
-            result = subprocess.run(["bash", str(scripts / "sync.sh")], text=True, capture_output=True,
-                                    env={**os.environ, "SKIP_SANITY_CHECK": "true", "NORMALIZED_LOGGING": "true"},
-                                    timeout=30)
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("SKIP_SANITY_CHECK is no longer supported", result.stdout)
-            self.assertFalse((root / "tmp").exists())
 
 
 if __name__ == "__main__":

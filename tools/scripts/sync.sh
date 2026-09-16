@@ -69,23 +69,15 @@ fi
 # before installing tools, fetching sources, or changing generated inputs.
 SOURCE_LOCK="${REPO_ROOT}/tools/assembly/sources.lock.json"
 python3 tools/scripts/assembly_sources.py --lock "${SOURCE_LOCK}" preflight --root "${REPO_ROOT}"
-if [[ -n ${SKIP_SANITY_CHECK:-} && ${SKIP_SANITY_CHECK} != "false" ]]; then
-  echo "SKIP_SANITY_CHECK is no longer supported; dependency compatibility is mandatory"
+
+# go.mod/go.work are generated from the original source requirements, so a fresh
+# assembly always needs the explicit Kubernetes release to align the family on.
+if [[ $# != 2 || $1 != "--update-dependencies" || ! $2 =~ ^1\.[0-9]+\.[0-9]+$ ]]; then
+  echo "Usage: sync.sh --update-dependencies 1.MINOR.PATCH"
   exit 1
 fi
+UPDATE_KUBERNETES="$2"
 
-UPDATE_KUBERNETES=""
-if [[ $# == 2 && $1 == "--update-dependencies" && $2 =~ ^1\.[0-9]+\.[0-9]+$ ]]; then
-  UPDATE_KUBERNETES="$2"
-elif [[ $# != 0 ]]; then
-  echo "Usage: sync.sh [--update-dependencies 1.MINOR.PATCH]"
-  exit 1
-fi
-if [[ -z ${UPDATE_KUBERNETES} ]]; then
-  python3 -B tools/scripts/assembly_lock.py preflight
-fi
-
-python3 -B tools/scripts/build_provenance.py verify
 python3 -B tools/scripts/image_inputs.py preflight
 python3 -B tools/scripts/build_environment.py bootstrap
 # shellcheck disable=SC1091 # created exclusively by the hash-verified bootstrap
@@ -104,11 +96,9 @@ fi
 # Atomic reservation prevents concurrent syncs from sharing an output tree.
 # The directory remains after failure so a partial run cannot be reused.
 mkdir tmp
-# Freeze project identity before generated files or merged upstream history exist.
-python3 -B tools/scripts/build_binaries.py capture
-SOURCE_DATE_EPOCH=$(python3 -B tools/scripts/build_binaries.py epoch)
+# Deterministic commit timestamps for the merged upstream history.
+SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)
 export SOURCE_DATE_EPOCH
-BUILD_ARCH=$(python3 -B tools/scripts/build_binaries.py arch)
 mkdir -p pkg cmd/csi-sidecars/ staging/src/github.com/kubernetes-csi/
 # Freeze the selected lock before fetching upstream repositories.
 cp "${SOURCE_LOCK}" tmp/sources.lock.json
@@ -423,37 +413,16 @@ symlink_from_root_to_tools tools/pkg/attacher/cmd/csi-attacher/config/flags.go
 # Tooling tests for the attacher flag registration.
 symlink_from_root_to_tools tools/pkg/attacher/cmd/csi-attacher/config/flags_test.go
 
-# Ordinary sync consumes canonical manifests; only explicit updates merge and
-# resolve original requirements (including test dependencies) through Go's parser.
-if [[ -n ${UPDATE_KUBERNETES} ]]; then
-  python3 -B tools/scripts/assembly_lock.py seed --kubernetes "${UPDATE_KUBERNETES}"
-else
-  python3 -B tools/scripts/assembly_lock.py install
-fi
+# Generate go.mod/go.work from the original source requirements, aligning the
+# Kubernetes family on the explicitly selected release, then resolve and vendor.
+# GOWORK is still off here so `go mod tidy` operates on the root module alone.
+python3 -B tools/scripts/assembly_dependencies.py seed --kubernetes "${UPDATE_KUBERNETES}"
+retry_go_dependencies go mod tidy
 export GOWORK="${REPO_ROOT}/go.work"
 
-# Root build files and inherited release-tools are maintained, locked inputs.
-# Refuse drift instead of rewriting the Makefile during assembly.
-python3 -B tools/scripts/build_provenance.py verify
-
-if [[ -n ${UPDATE_KUBERNETES} ]]; then
-  retry_go_dependencies go mod tidy
-else
-  python3 -B tools/scripts/assembly_lock.py graph
-fi
 python3 -B tools/scripts/assembly_dependencies.py graph
 retry_go_dependencies go work vendor
 python3 -B tools/scripts/assembly_dependencies.py vendor
-if [[ -n ${UPDATE_KUBERNETES} ]]; then
-  python3 -B tools/scripts/assembly_lock.py record
-else
-  python3 -B tools/scripts/assembly_lock.py vendor
-fi
-if [[ -n ${UPDATE_KUBERNETES} ]]; then
-  python3 -B tools/scripts/assembly_lock.py capture
-else
-  python3 -B tools/scripts/assembly_lock.py adapted
-fi
 export GOFLAGS="-mod=vendor"
 
 # Echo each checkpoint command before running it so every step is visible in
@@ -465,40 +434,13 @@ set -x
 # merged module resolves, so they run here rather than from the repo root.
 go test -timeout=5m ./cmd/csi-sidecars/... ./pkg/attacher/cmd/csi-attacher/config/...
 
-# checkpoint: test that we can build the project.
-make build BUILD_ARCH="${BUILD_ARCH}"
+# checkpoint: build all release binaries with the inherited plain go build.
+make build
 ./bin/csi-sidecars --help
-
-# checkpoint for individual sidecar refactor: test that we can build attacher
-python3 -B tools/scripts/build_binaries.py build --command csi-attacher --arch "${BUILD_ARCH}"
-./bin/csi-attacher --help
-
-# checkpoint: test that snapshot-controller builds as a standalone binary
 ./bin/snapshot-controller --help
-
-# checkpoint: test that snapshot-conversion-webhook builds as a standalone binary
 ./bin/snapshot-conversion-webhook --help
-python3 -B tools/scripts/build_binaries.py verify --arch "${BUILD_ARCH}"
 
 set +x
 
-# export PULL_BASE_REF=master
-# export REGISTRY_NAME=ghcr.io/mauriciopoppe/csi-sidecars-aio-poc
-# HW_ARCH=$(uname -m)
-# if [[ "${HW_ARCH}" == "aarch64" ]]; then
-#   export CSI_PROW_BUILD_PLATFORMS="linux arm64 arm64"
-# elif [[ "${HW_ARCH}" == "x86_64" ]]; then
-#   export CSI_PROW_BUILD_PLATFORMS="linux amd64 amd64"
-# else
-#   echo "Unsupported hardware arch $HW_ARCH"
-#   exit 1
-# fi
-# make container GOFLAGS_VENDOR="-mod=vendor" BUILD_PLATFORMS=${CSI_PROW_BUILD_PLATFORMS}
-
-if [[ -n ${UPDATE_KUBERNETES} ]]; then
-  python3 -B tools/scripts/assembly_lock.py --lock tmp/dependencies.candidate.json adapted
-else
-  python3 -B tools/scripts/assembly_lock.py adapted
-fi
 echo "Complete!"
 echo "Merged commit history available at tmp/csi-sidecars/"

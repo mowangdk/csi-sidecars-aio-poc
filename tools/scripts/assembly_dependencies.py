@@ -13,7 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Reject Kubernetes family drift and replacement downgrades before building."""
+"""Generate go.mod/go.work from the original sources and reject Kubernetes
+family drift and replacement downgrades before building."""
 
 import argparse
 import json
@@ -33,7 +34,11 @@ INDEPENDENT = frozenset({
 })
 CORE = frozenset({"k8s.io/api", "k8s.io/apimachinery", "k8s.io/client-go"})
 LIBRARY = Path("staging/src/github.com/kubernetes-csi/csi-lib-utils")
+ROOT_MODULE = "github.com/kubernetes-csi/csi-sidecars"
+LIB_MODULE = "github.com/kubernetes-csi/csi-lib-utils"
 VERSION = re.compile(r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
+SEMVER = re.compile(r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
+                    r"(?:-([0-9A-Za-z.-]+))?(?:\+incompatible)?")
 
 
 def is_family(path):
@@ -186,20 +191,102 @@ def validate_graph(modules, documents):
     return {path: version for path, (version, _) in sorted(effective.items())}
 
 
+def version_key(version):
+    match = SEMVER.fullmatch(version)
+    if not match:
+        raise ValueError(f"unsupported module version: {version}")
+    major, minor, patch, prerelease = match.groups()
+    identifiers = tuple((0, int(item)) if item.isdigit() else (1, item)
+                        for item in prerelease.split(".")) if prerelease else ()
+    return (int(major), int(minor), int(patch), prerelease is None, identifiers)
+
+
+def seed(root, kubernetes):
+    """Generate go.mod/go.work by merging the original source requirements.
+
+    Aligns every Kubernetes staging module to the explicitly selected release,
+    keeps independent modules at their highest source minimum, and points the
+    library module at its staged checkout.
+    """
+    if not re.fullmatch(r"1\.[0-9]+\.[0-9]+", kubernetes):
+        raise ValueError("generation requires an explicit Kubernetes release, e.g. 1.36.3")
+    target = release("k8s.io/kubernetes", "v" + kubernetes)
+    documents = source_documents(root)
+    requirements = validate_sources(documents)
+    for label, path, version, value in requirements:
+        if value > target or (path in CORE and value[0] != target[0]):
+            raise ValueError(f"{label}: {path} {version} cannot target Kubernetes {kubernetes}")
+    merged, replacements, family = {}, {}, set()
+    folded = {doc["Module"]["Path"] for label, doc in documents.items()
+              if not label.startswith("csi-lib-utils@")}
+    go_versions = []
+    for label, document in documents.items():
+        go_versions.append(tuple(map(int, document["Go"].split("."))))
+        if document.get("Exclude") or document.get("Tool"):
+            raise ValueError(f"{label}: unsupported exclude/tool directive; explicit adaptation required")
+        for item in document.get("Require") or []:
+            path, version = item["Path"], item["Version"]
+            if path in folded:
+                continue
+            if is_family(path):
+                family.add(path)
+                version = "v" + (kubernetes if path == "k8s.io/kubernetes" else "0." + kubernetes[2:])
+            if path not in merged or version_key(version) > version_key(merged[path]):
+                merged[path] = version
+        for item in document.get("Replace") or []:
+            old, new = item["Old"], item["New"]
+            path = old["Path"]
+            if path in folded and new["Path"] == "./client":
+                continue
+            if is_family(path):
+                if (new["Path"] != path or not new.get("Version") or
+                        release(path, new["Version"]) > target):
+                    raise ValueError(f"{label}: cannot align replacement for {path}")
+                family.add(path)
+            else:
+                if not new.get("Version"):
+                    raise ValueError(f"{label}: unsupported local replacement for {path}")
+                key = (path, old.get("Version", ""))
+                if key in replacements and replacements[key] != new:
+                    raise ValueError(f"conflicting source replacements for {path}")
+                replacements[key] = new
+    go_version = ".".join(map(str, max(go_versions)))
+    lines = [f"module {ROOT_MODULE}", "", f"go {go_version}", "", "require ("]
+    lines += [f"\t{path} {version}" for path, version in sorted(merged.items())]
+    lines += [")", ""]
+    for path in sorted(family):
+        version = "v" + (kubernetes if path == "k8s.io/kubernetes" else "0." + kubernetes[2:])
+        lines.append(f"replace {path} => {path} {version}")
+    for (path, version), new in sorted(replacements.items()):
+        lines.append(f"replace {path} {version} => {new['Path']} {new['Version']}")
+    lines.append(f"replace {LIB_MODULE} => ./{LIBRARY}")
+    for name, content in (("go.mod", "\n".join(lines) + "\n"),
+                          ("go.work", f"go {go_version}\n\nuse (\n\t.\n\t./{LIBRARY}\n)\n")):
+        with (root / name).open("x") as output:
+            output.write(content)
+    go(root, "mod", "edit", "-fmt")
+    go(root, "work", "edit", "-fmt")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path.cwd())
-    parser.add_argument("phase", choices=("sources", "graph", "vendor"))
+    parser.add_argument("--kubernetes", help="Kubernetes release to align go.mod generation on (seed)")
+    parser.add_argument("phase", choices=("sources", "graph", "vendor", "seed"))
     args = parser.parse_args()
     root = args.root.resolve()
     try:
-        documents = source_documents(root)
-        if args.phase == "sources":
-            validate_sources(documents)
-            print("Original source Kubernetes minor requirements agree")
+        if args.phase == "seed":
+            seed(root, args.kubernetes or "")
+            print("Generated go.mod and go.work from original source requirements")
         else:
-            versions = validate_graph(resolved_modules(root, args.phase == "vendor"), documents)
-            print(json.dumps({"schema_version": 1, "kubernetes_modules": versions}, indent=2, sort_keys=True))
+            documents = source_documents(root)
+            if args.phase == "sources":
+                validate_sources(documents)
+                print("Original source Kubernetes minor requirements agree")
+            else:
+                versions = validate_graph(resolved_modules(root, args.phase == "vendor"), documents)
+                print(json.dumps({"schema_version": 1, "kubernetes_modules": versions}, indent=2, sort_keys=True))
     except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
         print(f"Dependency compatibility failed: {error}", file=sys.stderr)
         return 1

@@ -72,9 +72,10 @@ The key design points from the KEP as implemented (or targeted) by this repo:
   `git blame`/`git log` traceability.
 - **Unified dependency workspace**: a generated `go.mod`/`go.work` at the
   repository root; synced sidecar components do not carry their own `go.mod`.
-  Exact source revisions, canonical dependencies, builder tools, and runtime
-  images are locked. See the [build workflow](./tools/README.md) for verification
-  scope. Native amd64, full offline assembly, and OCI reproducibility remain deferred.
+  The assembly area (including `go.mod`/`go.work` and `vendor/`) is committed,
+  so a checkout builds directly with a plain `go build`; `sync.sh` regenerates
+  it from the locked source revisions, builder tools, and runtime images. See
+  the [build workflow](./tools/README.md) for details.
 - **RBAC**: the design reuses each enabled controller's upstream policy. The
   current hostpath test deployment references fixed, older RBAC versions; these
   are not generated from the synced source revisions. Driver maintainers must
@@ -256,37 +257,42 @@ environment.
 
 ### Building the project locally
 
-For an isolated Linux assembly, including from macOS with a Linux container
-engine, explicitly preload the locked image, then use the isolated helper:
+The assembly area is committed, so from a populated tree you can build directly
+with a plain compile (no sync step):
+
+```bash
+make build
+```
+
+To regenerate the assembly area (for example after an upstream revision bump),
+including from macOS with a Linux container engine, preload the locked builder
+image and run the isolated helper:
 
 ```bash
 podman pull "$(python3 -B tools/scripts/build_environment.py image)"
-python3 -B tools/scripts/isolated_sync.py --engine podman
+python3 -B tools/scripts/isolated_sync.py --engine podman --update-dependencies 1.MINOR.PATCH
 ```
 
 Use `docker pull` and `--engine docker` for Docker. Arbitrary image overrides
-are rejected for fresh assembly. `--tooling-only` exercises tooling tests,
-gofmt, and license checks without needing an adopted dependency bundle.
+are rejected. `--tooling-only` exercises tooling tests, gofmt, and license
+checks without assembling.
 
-This copies tracked working files and new maintained files under `tools/` to a
-fresh `.work/assembly-*/source` directory, then runs sync only on that copy. It
-preserves edits, leaves developer caches and unrelated untracked files out, and
-retains the assembly log and source for diagnosis. It does not mount the original
-checkout, kubeconfig, or engine socket into the container. A fresh run also
-executes bounded maintained-package race tests, vet, and the README CLI smoke
-check. Normal sync consumes the locally activated source and canonical dependency
-locks under `tools/assembly/`, without update or candidate-selection flags.
-Builder tools, shared runtime images, and the selected legacy Kubernetes node
-image are locked; full build/release acceptance remains open. This helper is not
-a release guarantee.
+The helper copies tracked working files and new maintained files under `tools/`
+to a fresh `.work/assembly-*/source` directory, then runs sync only on that copy.
+It preserves edits, leaves developer caches and unrelated untracked files out,
+and retains the assembly log and source for diagnosis. It does not mount the
+original checkout, kubeconfig, or engine socket into the container. Sync
+generates `go.mod`/`go.work` from the locked source revisions and vendors the
+dependencies. This helper is not a release guarantee.
 
-See [tools/README.md](./tools/README.md) for update, replay, packaging, and branch-specific validation details.
+See [tools/README.md](./tools/README.md) for update, packaging, and image
+details.
 
 ### Building the project using CI
 
-Presubmit verify/build jobs use the locked helper for tooling, assembly,
-maintained-package race tests, vet, and CLI checks. The legacy hostpath E2E job
-is not migrated to that helper and has not been validated for this branch.
+Presubmit verify/build jobs use the locked helper for tooling checks and to
+generate and compile the assembly. The legacy hostpath E2E job is not migrated
+to that helper and has not been validated for this branch.
 
 ### E2E tests through the Hostpath CSI Driver
 

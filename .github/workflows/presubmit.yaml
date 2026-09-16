@@ -37,10 +37,12 @@ jobs:
     - uses: actions/checkout@a5ac7e51b41094c92402da3b24376905380afc29 # v4.1.6
     - name: preload locked Linux builder
       run: docker pull "$(python3 -B tools/scripts/build_environment.py image)"
-    # Uses the active source/dependency pair; mismatched or stale inputs fail closed.
-    # Restoring transformed upstream suites remains a separate acceptance gap.
-    - name: locked assembly, maintained-package race tests, vet, and CLI checks
-      run: python3 -B tools/scripts/isolated_sync.py --engine docker
+    # Generates the assembly from the locked sources inside the locked builder and
+    # compiles it (sync.sh runs the maintained-package tests, `make build`, and
+    # --help smoke checks). Once the generated tree is committed, this job can
+    # become a plain `go build`.
+    - name: locked assembly, build, and maintained-package checks
+      run: python3 -B tools/scripts/isolated_sync.py --engine docker --update-dependencies 1.36.3
 
   e2e-hostpath:
     runs-on: [ubuntu-latest]
