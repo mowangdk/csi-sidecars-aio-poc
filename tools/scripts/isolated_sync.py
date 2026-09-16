@@ -82,6 +82,9 @@ def main():
     parser.add_argument("--image", help="Optional digest matching the locked builder")
     parser.add_argument("--tooling-only", action="store_true",
                         help="Validate tools/ in the locked builder without assembling")
+    parser.add_argument("--in-place", action="store_true",
+                        help="Assemble in the repository root itself instead of a snapshot; "
+                             "for CI jobs whose later steps need the generated tree")
     parser.add_argument("--update-dependencies", metavar="1.MINOR.PATCH",
                         help="Kubernetes release to align go.mod generation on")
     args = parser.parse_args()
@@ -91,10 +94,6 @@ def main():
         parser.error("--update-dependencies must look like 1.MINOR.PATCH")
     work = ROOT / ".work"
     args.image = build_environment.select_image(build_environment.load(ROOT), args.image)
-    work.mkdir(exist_ok=True)
-    run = Path(tempfile.mkdtemp(prefix="assembly-", dir=work))
-    checkout = run / "source"
-    snapshot(ROOT, checkout)
     if args.tooling_only:
         script = (
             "python3 -B tools/scripts/build_environment.py bootstrap && "
@@ -103,6 +102,16 @@ def main():
             'test -z "$(gofmt -l tools/)" && ./release-tools/verify-boilerplate.sh "$PWD/tools"')
     else:
         script = f"./tools/scripts/sync.sh --update-dependencies {args.update_dependencies}"
+    if args.in_place:
+        # CI assembles in the real checkout so later steps (e2e, image builds)
+        # see the generated tree; output streams instead of a retained log.
+        command = container_command(args.engine, args.image, ROOT, script,
+                                    workspace=args.workspace)
+        return subprocess.run(command).returncode
+    work.mkdir(exist_ok=True)
+    run = Path(tempfile.mkdtemp(prefix="assembly-", dir=work))
+    checkout = run / "source"
+    snapshot(ROOT, checkout)
     log = run / "assembly.log"
     print(f"Isolated source: {checkout}\nAssembly log: {log}", flush=True)
     command = container_command(args.engine, args.image, checkout, script,

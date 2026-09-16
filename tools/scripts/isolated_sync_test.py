@@ -147,6 +147,24 @@ class MainModeTests(unittest.TestCase):
             self.assertIn(BUILD_IMAGE, command)
             self.assertIn("./tools/scripts/sync.sh --update-dependencies 1.36.3", command[-1])
 
+    def test_in_place_assembly_skips_snapshot_and_streams_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = self._root_with_lock(directory)
+            with patch.object(isolated_sync, "ROOT", root), patch.object(
+                isolated_sync, "snapshot") as snapshot, patch.object(
+                isolated_sync.subprocess, "run",
+                return_value=subprocess.CompletedProcess([], 0)) as run, patch(
+                "sys.argv", ["isolated_sync", "--in-place",
+                             "--update-dependencies", "1.36.3"]):
+                self.assertEqual(isolated_sync.main(), 0)
+            snapshot.assert_not_called()
+            command = run.call_args.args[0]
+            self.assertIn(BUILD_IMAGE, command)
+            self.assertIn(f"{root}:/workspace", command)
+            self.assertIn("./tools/scripts/sync.sh --update-dependencies 1.36.3", command[-1])
+            self.assertNotIn("stdout", run.call_args.kwargs)
+            self.assertFalse((root / ".work").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

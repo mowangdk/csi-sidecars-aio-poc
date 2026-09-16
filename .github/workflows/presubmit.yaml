@@ -54,15 +54,15 @@ jobs:
     - uses: actions/setup-go@v5
       with:
         go-version: ${{ matrix.go }}
-    - uses: actions/setup-python@v5
-      with:
-        python-version: "3.13"
     - run: |
         echo "GOPATH=$(go env GOPATH)" >> $GITHUB_ENV
     - run: go version
-    - run: ./tools/scripts/cleanup.sh 2>&1
-    - run: |
-        python3 -m venv .venv && source .venv/bin/activate
-        ./tools/scripts/sync.sh 2>&1
+    # sync.sh only runs inside the locked builder (it requires the builder
+    # identity and exact locked tool versions); --in-place leaves the
+    # generated tree in this workspace for the Prow e2e run below.
+    - name: preload locked Linux builder
+      run: docker pull "$(python3 -B tools/scripts/build_environment.py image)"
+    - name: locked assembly into the workspace
+      run: python3 -B tools/scripts/isolated_sync.py --engine docker --in-place --update-dependencies 1.36.3
     - run: ./.prow.sh 2>&1
     - run:  grep "Ginkgo ran" -B 4 .prow.sh.log

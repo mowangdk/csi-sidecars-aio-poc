@@ -23,7 +23,7 @@ bump), not as a step of every build.
 | `pkg/attacher/cmd/csi-attacher/config/flags_test.go` | Attacher flag-registration tests. |
 | `scripts/sync.sh` | Clones upstream `external-*`, rewrites imports, assembles the merged module, generates `go.mod`/`go.work`, and vendors. |
 | `scripts/cleanup.sh` | Removes all generated artifacts (leaves `tools/` untouched). |
-| `scripts/isolated_sync.py` | Runs `sync.sh` (or tooling checks) inside the locked Linux builder on a fresh snapshot; retains source and logs under `.work/`. |
+| `scripts/isolated_sync.py` | Runs `sync.sh` (or tooling checks) inside the locked Linux builder on a fresh snapshot; retains source and logs under `.work/`. `--in-place` assembles directly in the checkout for CI jobs whose later steps need the generated tree. |
 | `scripts/retry-go-dependencies.sh` | Bounded retries for transient Go dependency transport failures; preserves checksum verification. |
 | `scripts/retry_go_dependencies_test.py` | Regression tests for retry limits, exit status, and integrity failures. |
 | `scripts/verify_artifacts.py` | Checks README CLI arguments and packaged image executables/entrypoints/help. |
