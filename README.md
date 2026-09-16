@@ -259,11 +259,11 @@ environment.
 
 The assembly area is generated, not committed. Populate the checkout first —
 including from macOS with a Linux container engine, preload the locked builder
-image and run the isolated helper in place:
+image and run the isolated helper:
 
 ```bash
 podman pull "$(python3 -B tools/scripts/build_environment.py image)"
-python3 -B tools/scripts/isolated_sync.py --engine podman --in-place --update-dependencies 1.MINOR.PATCH
+python3 -B tools/scripts/isolated_sync.py --engine podman --update-dependencies 1.MINOR.PATCH
 ```
 
 Then build from the populated tree with a plain compile (no sync step):
@@ -273,21 +273,18 @@ make build
 ```
 
 To regenerate the assembly area (for example after an upstream revision bump),
-re-run the same `--in-place` command. Without `--in-place` the helper assembles
-a fresh tracked-file snapshot under `.work/` instead, which validates sync
-without touching the checkout.
+re-run the same command; preflight verifies any existing outputs are
+disposable and `sync.sh` removes them before assembling.
 
 Use `docker pull` and `--engine docker` for Docker. Arbitrary image overrides
 are rejected. `--tooling-only` exercises tooling tests, gofmt, and license
 checks without assembling.
 
-The helper copies tracked working files and new maintained files under `tools/`
-to a fresh `.work/assembly-*/source` directory, then runs sync only on that copy.
-It preserves edits, leaves developer caches and unrelated untracked files out,
-and retains the assembly log and source for diagnosis. It does not mount the
-original checkout, kubeconfig, or engine socket into the container. Sync
-generates `go.mod`/`go.work` from the locked source revisions and vendors the
-dependencies. This helper is not a release guarantee.
+The helper mounts the checkout into the locked container (`--pull=never`, all
+capabilities dropped, no new privileges); the kubeconfig and engine socket are
+not mounted. Sync generates `go.mod`/`go.work` from the locked source
+revisions and vendors the dependencies. This helper is not a release
+guarantee.
 
 See [tools/README.md](./tools/README.md) for update, packaging, and image
 details.

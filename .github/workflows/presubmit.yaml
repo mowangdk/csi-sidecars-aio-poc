@@ -58,11 +58,11 @@ jobs:
         echo "GOPATH=$(go env GOPATH)" >> $GITHUB_ENV
     - run: go version
     # sync.sh only runs inside the locked builder (it requires the builder
-    # identity and exact locked tool versions); --in-place leaves the
-    # generated tree in this workspace for the Prow e2e run below.
+    # identity and exact locked tool versions); the container mounts this
+    # workspace, so the generated tree stays for the Prow e2e run below.
     - name: preload locked Linux builder
       run: docker pull "$(python3 -B tools/scripts/build_environment.py image)"
     - name: locked assembly into the workspace
-      run: python3 -B tools/scripts/isolated_sync.py --engine docker --in-place --update-dependencies 1.36.3
+      run: python3 -B tools/scripts/isolated_sync.py --engine docker --update-dependencies 1.36.3
     - run: ./.prow.sh 2>&1
     - run:  grep "Ginkgo ran" -B 4 .prow.sh.log

@@ -13,55 +13,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Run Linux assembly on a fresh copy; retain source and logs under .work/."""
+"""Run tooling checks or the full assembly inside the locked Linux builder.
+
+The container mounts the checkout itself, so the assembly regenerates the
+tree in place; sync.sh verifies the existing outputs are disposable (via
+preflight) and removes them before assembling.
+"""
 
 import argparse
 import os
 from pathlib import Path
 import re
-import shutil
 import subprocess
-import tempfile
 
 import build_environment
 
 ROOT = Path(__file__).resolve().parents[2]
-
-# Generated outputs are reproducible from tools/ and the locks; the snapshot
-# excludes them so the isolated copy always assembles from a fresh tree (and a
-# checkout with the committed generated tree stays snapshot-friendly).
-GENERATED_OUTPUTS = frozenset({
-    "pkg", "cmd", "staging", "vendor", "tmp", "bin",
-    "go.mod", "go.sum", "go.work", "go.work.sum",
-})
-
-
-def snapshot(root, destination):
-    """Copy tracked working files (plus new maintained tools/) to a fresh clone."""
-    root = root.resolve()
-    subprocess.run(["git", "clone", "--local", "--no-hardlinks", "--no-checkout",
-                    str(root), str(destination)], check=True)
-    tracked = subprocess.check_output(
-        ["git", "-C", str(root), "ls-files", "-z", "--cached"])
-    added = subprocess.check_output(
-        ["git", "-C", str(root), "ls-files", "-z", "--others",
-         "--exclude-standard", "--", "tools"])
-    for name in sorted(set((tracked + added).split(b"\0")) - {b""}):
-        relative = Path(os.fsdecode(name))
-        if relative.parts[0] in GENERATED_OUTPUTS:
-            continue
-        source = root / relative
-        target = destination / relative
-        if source.is_symlink():
-            link = os.readlink(source)
-            if Path(link).is_absolute() or not source.resolve().is_relative_to(root):
-                raise ValueError(f"source symlink escapes snapshot: {relative}")
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.symlink_to(link)
-        elif source.exists():
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, target)
-        # Absent tracked files preserve deletions in the working tree.
 
 
 def workspace_path(value):
@@ -78,7 +45,7 @@ def container_command(engine, image, checkout, script, workspace="/workspace"):
                "--env", f"CSI_AIO_BUILDER_IMAGE={image}",
                "--volume", f"{checkout}:{workspace}", "--workdir", workspace]
     if engine == "docker" and os.uname().sysname == "Linux":
-        # Keep CI snapshots owned by the checkout user without weakening Git trust.
+        # Keep assembled files owned by the checkout user without weakening Git trust.
         command += ["--user", f"{os.getuid()}:{os.getgid()}", "--env", "HOME=/tmp",
                     "--env", "GOPATH=/tmp/go", "--env", "GOCACHE=/tmp/go-build"]
     return command + [image, "bash", "-c", script]
@@ -92,9 +59,6 @@ def main():
     parser.add_argument("--image", help="Optional digest matching the locked builder")
     parser.add_argument("--tooling-only", action="store_true",
                         help="Validate tools/ in the locked builder without assembling")
-    parser.add_argument("--in-place", action="store_true",
-                        help="Assemble in the repository root itself instead of a snapshot; "
-                             "for CI jobs whose later steps need the generated tree")
     parser.add_argument("--update-dependencies", metavar="1.MINOR.PATCH",
                         help="Kubernetes release to align go.mod generation on")
     args = parser.parse_args()
@@ -102,7 +66,6 @@ def main():
         parser.error("provide either --tooling-only or --update-dependencies 1.MINOR.PATCH")
     if args.update_dependencies and not re.fullmatch(r"1\.[0-9]+\.[0-9]+", args.update_dependencies):
         parser.error("--update-dependencies must look like 1.MINOR.PATCH")
-    work = ROOT / ".work"
     args.image = build_environment.select_image(build_environment.load(ROOT), args.image)
     if args.tooling_only:
         script = (
@@ -112,26 +75,9 @@ def main():
             'test -z "$(gofmt -l tools/)" && ./release-tools/verify-boilerplate.sh "$PWD/tools"')
     else:
         script = f"./tools/scripts/sync.sh --update-dependencies {args.update_dependencies}"
-    if args.in_place:
-        # CI assembles in the real checkout so later steps (e2e, image builds)
-        # see the generated tree; output streams instead of a retained log.
-        command = container_command(args.engine, args.image, ROOT, script,
-                                    workspace=args.workspace)
-        return subprocess.run(command).returncode
-    work.mkdir(exist_ok=True)
-    run = Path(tempfile.mkdtemp(prefix="assembly-", dir=work))
-    checkout = run / "source"
-    snapshot(ROOT, checkout)
-    log = run / "assembly.log"
-    print(f"Isolated source: {checkout}\nAssembly log: {log}", flush=True)
-    command = container_command(args.engine, args.image, checkout, script,
+    command = container_command(args.engine, args.image, ROOT, script,
                                 workspace=args.workspace)
-    with log.open("w") as output:
-        result = subprocess.run(command, stdout=output, stderr=subprocess.STDOUT)
-    print(f"Assembly exit status: {result.returncode}; retained at {run}")
-    if result.returncode:
-        print("\n".join(log.read_text(errors="replace").splitlines()[-60:]))
-    return result.returncode
+    return subprocess.run(command).returncode
 
 
 if __name__ == "__main__":

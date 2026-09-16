@@ -93,7 +93,7 @@ def ignored(root, name):
 def require_fresh(root):
     """Existing generated output must be disposable without losing work.
 
-    A fresh isolated snapshot contains none of these paths. A checkout whose
+    A fresh checkout contains none of these paths. A checkout whose
     assembly area is tracked contains them clean, and an ordinary checkout
     contains them git-ignored; both let sync delete and regenerate them safely.
     Anything else — a partial or hand-edited assembly, an interrupted run, an

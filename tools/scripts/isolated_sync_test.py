@@ -26,63 +26,7 @@ BUILD_LOCK = (build_environment.ROOT / build_environment.LOCK).read_bytes()
 BUILD_IMAGE = build_environment.select_image(build_environment.load())
 
 
-class IsolatedSnapshotTests(unittest.TestCase):
-    def test_snapshot_preserves_working_edits_and_excludes_user_files(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory) / "root"
-            root.mkdir()
-            (root / "tools").mkdir()
-            (root / "tools/new.py").write_text("new maintained code")
-            (root / "tracked name").write_text("working tree edit")
-            (root / ".claude").mkdir()
-            (root / ".claude/private").write_text("not an assembly input")
-            (root / "alias").symlink_to("tracked name")
-            destination = Path(directory) / "copy"
-            with patch.object(isolated_sync.subprocess, "run") as clone, patch.object(
-                isolated_sync.subprocess, "check_output", side_effect=[
-                    b"tracked name\0alias\0deleted\0", b"tools/new.py\0"]
-            ):
-                isolated_sync.snapshot(root, destination)
-            command = clone.call_args.args[0]
-            self.assertIn("--no-hardlinks", command)
-            self.assertIn("--no-checkout", command)
-            self.assertEqual((destination / "tracked name").read_text(), "working tree edit")
-            self.assertEqual((destination / "tools/new.py").read_text(), "new maintained code")
-            self.assertEqual(os.readlink(destination / "alias"), "tracked name")
-            self.assertFalse((destination / ".claude").exists())
-            self.assertFalse((destination / "deleted").exists())
-            self.assertEqual((root / ".claude/private").read_text(), "not an assembly input")
-
-    def test_snapshot_rejects_external_symlinks(self):
-        for target in ("../outside", "/tmp/outside"):
-            with self.subTest(target=target), tempfile.TemporaryDirectory() as directory:
-                root = Path(directory) / "root"
-                root.mkdir()
-                (root / "alias").symlink_to(target)
-                with patch.object(isolated_sync.subprocess, "run"), patch.object(
-                    isolated_sync.subprocess, "check_output", side_effect=[b"alias\0", b""]
-                ):
-                    with self.assertRaisesRegex(ValueError, "escapes snapshot"):
-                        isolated_sync.snapshot(root, Path(directory) / "copy")
-
-    def test_snapshot_excludes_committed_generated_tree(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory) / "root"
-            root.mkdir()
-            (root / "pkg").mkdir()
-            (root / "pkg/x.go").write_text("generated upstream copy")
-            (root / "go.mod").write_text("module example.org/assembly\n")
-            (root / "kept.go").write_text("maintained")
-            destination = Path(directory) / "copy"
-            with patch.object(isolated_sync.subprocess, "run"), patch.object(
-                isolated_sync.subprocess, "check_output",
-                side_effect=[b"pkg/x.go\0go.mod\0go.work\0kept.go\0", b""]
-            ):
-                isolated_sync.snapshot(root, destination)
-            self.assertEqual((destination / "kept.go").read_text(), "maintained")
-            for name in ("pkg", "go.mod", "go.work"):
-                self.assertFalse((destination / name).exists(), name)
-
+class ContainerCommandTests(unittest.TestCase):
     def test_container_command_is_locked_and_isolated(self):
         for engine in ("podman", "docker"):
             command = isolated_sync.container_command(
@@ -125,57 +69,42 @@ class MainModeTests(unittest.TestCase):
                 isolated_sync.main()
             self.assertEqual(raised.exception.code, 2)
 
-    def test_unlocked_builder_rejected_before_snapshot(self):
+    def test_unlocked_builder_rejected_before_running(self):
         with tempfile.TemporaryDirectory() as directory:
             root = self._root_with_lock(directory)
             with patch.object(isolated_sync, "ROOT", root), patch.object(
-                isolated_sync, "snapshot") as snapshot, patch(
+                isolated_sync.subprocess, "run") as run, patch(
                 "sys.argv", ["isolated_sync", "--image", "mutable:latest",
                              "--update-dependencies", "1.36.3"]):
                 with self.assertRaisesRegex(ValueError, "unlocked builder"):
                     isolated_sync.main()
-            snapshot.assert_not_called()
+            run.assert_not_called()
 
     def test_tooling_mode_runs_checks_without_sync(self):
         with tempfile.TemporaryDirectory() as directory:
             root = self._root_with_lock(directory)
             with patch.object(isolated_sync, "ROOT", root), patch.object(
-                isolated_sync, "snapshot"), patch.object(
                 isolated_sync.subprocess, "run",
                 return_value=subprocess.CompletedProcess([], 0)) as run, patch(
                 "sys.argv", ["isolated_sync", "--tooling-only"]):
                 self.assertEqual(isolated_sync.main(), 0)
             command = run.call_args.args[0]
             self.assertIn(BUILD_IMAGE, command)
+            self.assertIn(f"{root}:/workspace", command)
             self.assertIn("build_environment.py bootstrap", command[-1])
             self.assertIn("unittest discover", command[-1])
             self.assertIn("verify-boilerplate.sh", command[-1])
             self.assertNotIn("sync.sh", command[-1])
+            self.assertNotIn("stdout", run.call_args.kwargs)
 
-    def test_assembly_mode_runs_sync_with_selected_release(self):
+    def test_assembly_mode_runs_sync_in_the_checkout(self):
         with tempfile.TemporaryDirectory() as directory:
             root = self._root_with_lock(directory)
             with patch.object(isolated_sync, "ROOT", root), patch.object(
-                isolated_sync, "snapshot"), patch.object(
                 isolated_sync.subprocess, "run",
                 return_value=subprocess.CompletedProcess([], 0)) as run, patch(
                 "sys.argv", ["isolated_sync", "--update-dependencies", "1.36.3"]):
                 self.assertEqual(isolated_sync.main(), 0)
-            command = run.call_args.args[0]
-            self.assertIn(BUILD_IMAGE, command)
-            self.assertIn("./tools/scripts/sync.sh --update-dependencies 1.36.3", command[-1])
-
-    def test_in_place_assembly_skips_snapshot_and_streams_output(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = self._root_with_lock(directory)
-            with patch.object(isolated_sync, "ROOT", root), patch.object(
-                isolated_sync, "snapshot") as snapshot, patch.object(
-                isolated_sync.subprocess, "run",
-                return_value=subprocess.CompletedProcess([], 0)) as run, patch(
-                "sys.argv", ["isolated_sync", "--in-place",
-                             "--update-dependencies", "1.36.3"]):
-                self.assertEqual(isolated_sync.main(), 0)
-            snapshot.assert_not_called()
             command = run.call_args.args[0]
             self.assertIn(BUILD_IMAGE, command)
             self.assertIn(f"{root}:/workspace", command)

@@ -23,7 +23,7 @@ sync is not a step of every build.
 | `pkg/attacher/cmd/csi-attacher/config/flags_test.go` | Attacher flag-registration tests. |
 | `scripts/sync.sh` | Clones upstream `external-*`, rewrites imports, assembles the merged module, generates `go.mod`/`go.work`, and vendors. |
 | `scripts/cleanup.sh` | Removes all generated artifacts (leaves `tools/` untouched). |
-| `scripts/isolated_sync.py` | Runs `sync.sh` (or tooling checks) inside the locked Linux builder on a fresh snapshot; retains source and logs under `.work/`. `--in-place` assembles directly in the checkout — the way to populate a local tree, and the mode CI uses for jobs whose later steps need the generated tree. |
+| `scripts/isolated_sync.py` | Runs `sync.sh` (or tooling checks) inside the locked Linux builder with the checkout mounted, regenerating the assembly area in place. |
 | `scripts/retry-go-dependencies.sh` | Bounded retries for transient Go dependency transport failures; preserves checksum verification. |
 | `scripts/retry_go_dependencies_test.py` | Regression tests for retry limits, exit status, and integrity failures. |
 | `scripts/verify_artifacts.py` | Checks README CLI arguments and packaged image executables/entrypoints/help. |
@@ -55,13 +55,13 @@ Populate or regenerate the assembly area inside the locked Linux builder:
 
 ```bash
 podman pull "$(python3 -B tools/scripts/build_environment.py image)"
-python3 -B tools/scripts/isolated_sync.py --in-place --update-dependencies 1.MINOR.PATCH
+python3 -B tools/scripts/isolated_sync.py --update-dependencies 1.MINOR.PATCH
 ```
 
 The helper defaults to Podman; use `--engine docker` with a Docker preload
-instead. `--in-place` writes the tree into the checkout; without it the helper
-assembles a fresh tracked-file snapshot under `.work/`, retaining source and
-log for diagnosis. `--tooling-only`
+instead. The container mounts the checkout, so the tree is regenerated in
+place: preflight verifies any existing outputs are disposable and `sync.sh`
+removes them before assembling. `--tooling-only`
 runs the tooling tests, gofmt, and license checks without assembling.
 `make sync KUBERNETES=1.MINOR.PATCH` and `make clean` wrap the root scripts.
 Both `sync.sh` and `cleanup.sh` can be started from any directory: they resolve
