@@ -38,18 +38,9 @@ jobs:
         with:
           go-version: ${{ steps.go-version.outputs.go }}
 
-      - name: Preload locked Linux builder
-        run: docker pull "$(python3 -B tools/scripts/build_environment.py image)"
-
-      # sync.sh only runs inside the locked builder (it requires the builder
-      # identity and exact locked tool versions); --in-place leaves the
-      # generated tree in this workspace for `make container` below.
-      - name: Sync the assembly area from upstream kubernetes-csi repositories
-        run: python3 -B tools/scripts/isolated_sync.py --engine docker --in-place --update-dependencies 1.36.3
-
       - name: Build images from Dockerfile
-        # `make container` builds every cmd in the Makefile's CMDS list
-        # (kept current by sync.sh); the three scans below stay in one job
+        # `make container` builds every cmd in the Makefile's CMDS list from
+        # the committed generated tree; the three scans below stay in one job
         # so they share the trivy DB downloaded by the first scan.
         run: make container
 
