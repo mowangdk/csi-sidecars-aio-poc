@@ -22,37 +22,10 @@ from unittest.mock import patch
 
 import assembly_dependencies as dependencies
 
-
-def document(version="v0.36.1"):
-    return {"Require": [{"Path": path, "Version": version} for path in sorted(dependencies.CORE)]}
+CORE = ("k8s.io/api", "k8s.io/apimachinery", "k8s.io/client-go")
 
 
-class SourceValidationTests(unittest.TestCase):
-    def test_cross_minor_sources_have_component_and_revision_diagnostics(self):
-        documents = {"attacher@aaaa": document(), "csi-lib-utils@bbbb": document("v0.37.0")}
-        with self.assertRaises(ValueError) as raised:
-            dependencies.validate_sources(documents)
-        self.assertIn("attacher@aaaa", str(raised.exception))
-        self.assertIn("csi-lib-utils@bbbb", str(raised.exception))
-        self.assertIn("k8s.io/client-go requires v0.37.0", str(raised.exception))
-
-    def test_missing_modules_and_unknown_versions_fail_closed(self):
-        for documents in ({}, {"source": {"Require": []}}, {"source": {"Require": document()["Require"] * 2}}):
-            with self.assertRaises(ValueError):
-                dependencies.validate_sources(documents)
-        for path, version in (("k8s.io/new-staging", "v0.0.0"), ("k8s.io/api", "v1.36.1"),
-                              ("k8s.io/kubernetes", "v0.36.1"), ("k8s.io/api", "v0.036.1")):
-            with self.assertRaises(ValueError):
-                dependencies.release(path, version)
-
-    def test_core_and_monolithic_requirements_cannot_hide_behind_placeholders(self):
-        for path in sorted(dependencies.CORE | {"k8s.io/kubernetes"}):
-            original = document()
-            original["Require"] = [item for item in original["Require"] if item["Path"] != path]
-            original["Require"].append({"Path": path, "Version": "v0.0.0"})
-            with self.subTest(path=path), self.assertRaisesRegex(ValueError, "concrete Kubernetes release"):
-                dependencies.validate_sources({"source@revision": original})
-
+class SeedTests(unittest.TestCase):
     def test_go_commands_ignore_ambient_workspace_and_module_flags(self):
         with patch.dict(os.environ, {"GOWORK": "/unrelated", "GOFLAGS": "-modfile=/unrelated"}), patch.object(
             dependencies.subprocess, "check_output", return_value="{}"
@@ -67,6 +40,11 @@ class SourceValidationTests(unittest.TestCase):
             self.assertEqual(env["GOENV"], "off")
             dependencies.go(Path("/isolated"), "mod", "edit", "-json", workspace=False)
             self.assertEqual(run.call_args.kwargs["env"]["GOWORK"], "off")
+
+    def test_seed_requires_an_explicit_kubernetes_release(self):
+        for kubernetes in ("", "1.36", "v1.36.3", "1.36.x"):
+            with self.subTest(kubernetes=kubernetes), self.assertRaisesRegex(ValueError, "explicit Kubernetes release"):
+                dependencies.seed(Path("/isolated"), kubernetes)
 
     def test_sync_seeds_manifests_then_builds_without_redundant_checks(self):
         script = Path(__file__).with_name("sync.sh").read_text()
@@ -84,7 +62,7 @@ class SourceValidationTests(unittest.TestCase):
 
 @unittest.skipUnless(shutil.which("go"), "Go required for the real source-manifest fixture")
 class SourceDocumentTests(unittest.TestCase):
-    def test_all_six_original_manifests_use_frozen_revision_labels(self):
+    def test_seed_generates_aligned_manifests_from_the_six_original_sources(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             frozen = root / "tmp/sources.lock.json"
@@ -96,12 +74,23 @@ class SourceDocumentTests(unittest.TestCase):
             for index, path in enumerate(paths):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text("module example.org/source\ngo 1.26.0\n" + "\n".join(
-                    f"require {module} v0.36.{index}\n" for module in sorted(dependencies.CORE)))
+                    f"require {module} v0.36.{index}\n" for module in CORE))
             documents = dependencies.source_documents(root)
             self.assertEqual(len(documents), 6)
             self.assertTrue(any(label.startswith("snapshotter/client@") for label in documents))
             self.assertTrue(any(label.startswith("csi-lib-utils@") for label in documents))
-            dependencies.validate_sources(documents)
+
+            # seed forces every Kubernetes family module onto the selected release
+            # regardless of the (deliberately mismatched) source patch levels.
+            dependencies.seed(root, "1.36.3")
+            generated = (root / "go.mod").read_text()
+            self.assertIn(f"module {dependencies.ROOT_MODULE}", generated)
+            for module in CORE:
+                self.assertIn(f"replace {module} => {module} v0.36.3", generated)
+            self.assertIn(
+                f"replace {dependencies.LIB_MODULE} => ./{dependencies.LIBRARY}", generated)
+            self.assertTrue((root / "go.work").exists())
+
             paths[-1].unlink()
             with self.assertRaises(subprocess.CalledProcessError):
                 dependencies.source_documents(root)
