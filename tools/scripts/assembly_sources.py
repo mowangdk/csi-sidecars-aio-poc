@@ -85,14 +85,20 @@ def git(*args, cwd=None):
     return subprocess.check_output(["git", *args], cwd=cwd, text=True, timeout=300).strip()
 
 
-def require_fresh(root):
-    """Existing generated output must be restorable: git-tracked and clean.
+def ignored(root, name):
+    return subprocess.run(["git", "check-ignore", "-q", name], cwd=root,
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
 
-    A fresh isolated snapshot contains none of these paths. A checkout of the
-    committed tree contains them tracked and clean, so the sync can delete and
-    regenerate them without destroying work. Anything else — a partial or
-    hand-edited assembly, an interrupted run, an untracked experiment — must be
-    removed explicitly with tools/scripts/cleanup.sh first.
+
+def require_fresh(root):
+    """Existing generated output must be disposable without losing work.
+
+    A fresh isolated snapshot contains none of these paths. A checkout whose
+    assembly area is tracked contains them clean, and an ordinary checkout
+    contains them git-ignored; both let sync delete and regenerate them safely.
+    Anything else — a partial or hand-edited assembly, an interrupted run, an
+    untracked experiment — must be removed explicitly with
+    tools/scripts/cleanup.sh first.
     """
     root = Path(root)
     present = [name for name in GENERATED_OUTPUTS
@@ -112,9 +118,9 @@ def require_fresh(root):
                          "commit it or run tools/scripts/cleanup.sh")
     tracked = git("ls-files", "--", *present, cwd=root)
     covered = {line.split("/", 1)[0] for line in tracked.splitlines()}
-    untracked = [name for name in present if name not in covered]
-    if untracked:
-        raise ValueError(f"existing untracked assembly output {untracked[0]}; "
+    foreign = [name for name in present if name not in covered and not ignored(root, name)]
+    if foreign:
+        raise ValueError(f"existing untracked assembly output {foreign[0]}; "
                          "run tools/scripts/cleanup.sh")
 
 

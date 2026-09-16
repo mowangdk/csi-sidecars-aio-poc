@@ -7,10 +7,9 @@ include release-tools/build.make
 # `go build` (stamping main.version from REV). Builds use the vendor/ directory
 # automatically when it is present, so a populated tree needs no sync first.
 
-# Regenerate the committed assembly area (cmd/, pkg/, staging/, go.mod/go.work,
-# vendor/) from the upstream kubernetes-csi repositories. Requires Linux and
-# the locked builder; see tools/scripts/sync.sh. The script verifies the
-# existing tree is tracked and clean, then removes and regenerates it.
+# Regenerate the assembly area (cmd/, pkg/, staging/, go.mod/go.work, vendor/)
+# from the upstream kubernetes-csi repositories. Requires Linux and the locked
+# builder; see tools/scripts/sync.sh.
 .PHONY: sync
 sync:
 	@test -n '$(KUBERNETES)' || { echo 'Usage: make sync KUBERNETES=1.MINOR.PATCH'; exit 1; }

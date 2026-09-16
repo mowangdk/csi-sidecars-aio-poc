@@ -6,9 +6,9 @@ to the generated assembly area.
 
 The assembly area (`cmd/`, `pkg/`, `staging/`, `go.mod`/`go.work`, `vendor/`)
 is produced by `scripts/sync.sh` from the locked upstream revisions and is
-**committed**, so a checkout builds directly with a plain `go build`. Sync is
-only needed to regenerate the tree (for example after an upstream revision
-bump), not as a step of every build.
+**not committed** — `.gitignore` excludes it as build output. A fresh checkout
+runs sync once inside the locked builder, then builds with a plain `go build`;
+sync is not a step of every build.
 
 ## Contents
 
@@ -23,7 +23,7 @@ bump), not as a step of every build.
 | `pkg/attacher/cmd/csi-attacher/config/flags_test.go` | Attacher flag-registration tests. |
 | `scripts/sync.sh` | Clones upstream `external-*`, rewrites imports, assembles the merged module, generates `go.mod`/`go.work`, and vendors. |
 | `scripts/cleanup.sh` | Removes all generated artifacts (leaves `tools/` untouched). |
-| `scripts/isolated_sync.py` | Runs `sync.sh` (or tooling checks) inside the locked Linux builder on a fresh snapshot; retains source and logs under `.work/`. `--in-place` assembles directly in the checkout — the flow for regenerating the committed tree. |
+| `scripts/isolated_sync.py` | Runs `sync.sh` (or tooling checks) inside the locked Linux builder on a fresh snapshot; retains source and logs under `.work/`. `--in-place` assembles directly in the checkout — the way to populate a local tree, and the mode CI uses for jobs whose later steps need the generated tree. |
 | `scripts/retry-go-dependencies.sh` | Bounded retries for transient Go dependency transport failures; preserves checksum verification. |
 | `scripts/retry_go_dependencies_test.py` | Regression tests for retry limits, exit status, and integrity failures. |
 | `scripts/verify_artifacts.py` | Checks README CLI arguments and packaged image executables/entrypoints/help. |
@@ -51,24 +51,21 @@ Build directly from a populated tree (no sync required):
 make build            # plain go build of the three release commands
 ```
 
-Regenerate the committed assembly area inside the locked Linux builder:
+Populate or regenerate the assembly area inside the locked Linux builder:
 
 ```bash
 podman pull "$(python3 -B tools/scripts/build_environment.py image)"
 python3 -B tools/scripts/isolated_sync.py --in-place --update-dependencies 1.MINOR.PATCH
-git add pkg cmd staging vendor go.mod go.sum go.work go.work.sum
 ```
 
 The helper defaults to Podman; use `--engine docker` with a Docker preload
-instead. `sync.sh` first verifies any existing generated tree is tracked and
-clean, removes it, and assembles fresh — uncommitted or untracked generated
-output stops the sync (reset that state with `scripts/cleanup.sh`). Without
-`--in-place` the helper retains a fresh snapshot and log under `.work/` for
-validation runs. `--tooling-only` runs the tooling tests, gofmt, and license
-checks without assembling. `make sync KUBERNETES=1.MINOR.PATCH` and
-`make clean` wrap the root scripts. Both `sync.sh` and `cleanup.sh` can be
-started from any directory: they resolve the repository root from their own
-location and always operate on it.
+instead. `--in-place` writes the tree into the checkout; without it the helper
+assembles a fresh tracked-file snapshot under `.work/`, retaining source and
+log for diagnosis. `--tooling-only`
+runs the tooling tests, gofmt, and license checks without assembling.
+`make sync KUBERNETES=1.MINOR.PATCH` and `make clean` wrap the root scripts.
+Both `sync.sh` and `cleanup.sh` can be started from any directory: they resolve
+the repository root from their own location and always operate on it.
 
 `sync.sh` symlinks the hand-maintained entrypoints from `tools/` into the
 assembly area and generates the rest from upstream. It generates
@@ -88,8 +85,8 @@ The source lock targets Kubernetes 1.36.3, with staging modules aligned at
 0.36.3. `assembly_dependencies.py seed` reads the original component
 requirements (including the snapshot client) and aligns every Kubernetes staging
 module on the selected release while generating `go.mod`/`go.work`. The resolved
-tree is then pinned by git and `go.sum`; there is no separate consistency
-re-check, so a build is a plain `go build` against the committed vendor tree.
+tree is then pinned by the source lock and `go.sum`; there is no separate consistency
+re-check, so a build is a plain `go build` against the generated vendor tree.
 
 ## Runtime and legacy test image inputs
 

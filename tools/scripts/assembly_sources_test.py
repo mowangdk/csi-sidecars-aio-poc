@@ -111,9 +111,24 @@ class SourceLockTests(unittest.TestCase):
                 root = Path(directory)
                 (root / ".git").mkdir()
                 (root / "pkg").mkdir()
-                with patch.object(sources, "git", side_effect=[status, ls_files]):
+                with patch.object(sources, "git", side_effect=[status, ls_files]), \
+                        patch.object(sources, "ignored", return_value=False):
                     with self.assertRaisesRegex(ValueError, message):
                         sources.require_fresh(root)
+
+    def test_preflight_accepts_ignored_generated_tree(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / ".git").mkdir()
+            for name in ("pkg", "vendor"):
+                (root / name).mkdir()
+            (root / "go.mod").write_text("module example.org/assembly\n")
+            with patch.object(sources, "git", side_effect=["", ""]) as git, \
+                    patch.object(sources, "ignored", return_value=True) as check_ignore:
+                sources.require_fresh(root)
+            self.assertEqual(git.call_count, 2)
+            self.assertEqual({call.args[1] for call in check_ignore.call_args_list},
+                             {"pkg", "vendor", "go.mod"})
 
     def test_checkout_uses_original_sha_and_stable_ref(self):
         with tempfile.TemporaryDirectory() as directory:
