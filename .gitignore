@@ -1,7 +1,19 @@
+# Assembly output produced by tools/scripts/sync.sh
+/pkg/
+/cmd/
+/staging/
+/vendor/
+/go.mod
+/go.sum
+/go.work
+/go.work.sum
 /bin/
+/tmp/
+/.assembly-env/
 .venv
 venv
 .DS_Store
+__pycache__/
 
 !/tools/sync.log
 !.prow.sh.log
