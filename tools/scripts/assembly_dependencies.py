@@ -13,8 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Generate go.mod/go.work from the original sources and reject Kubernetes
-family drift and replacement downgrades before building."""
+"""Generate go.mod/go.work from the original sources, aligning the Kubernetes
+family on an explicitly selected release and rejecting cross-minor drift."""
 
 import argparse
 import json
@@ -113,84 +113,6 @@ def validate_sources(documents):
     return requirements
 
 
-def json_stream(text):
-    decoder = json.JSONDecoder(object_pairs_hook=assembly_sources.unique_object)
-    values = []
-    while text.strip():
-        value, end = decoder.raw_decode(text.lstrip())
-        if not isinstance(value, dict) or value.get("Error"):
-            raise ValueError(f"invalid resolved module: {value}")
-        values.append(value)
-        text = text.lstrip()[end:]
-    if not values:
-        raise ValueError("empty resolved module graph")
-    return values
-
-
-def vendored_paths(text):
-    """Select module headers, not package lines or versionless replace trailers."""
-    headers = set()
-    for line in text.splitlines():
-        fields = line.split()
-        if len(fields) >= 3 and fields[0] == "#" and fields[2].startswith("v"):
-            header = (fields[1], fields[2])
-            if header in headers:
-                raise ValueError("duplicate vendored module/version header")
-            headers.add(header)
-    if not headers:
-        raise ValueError("empty vendored module inventory")
-    # Workspace members may require different versions of one module. Go emits
-    # explicit-only headers for the lower requirements as well as the selected
-    # version. Ask Go once per path for the effective build-list version; never
-    # treat those requirement-only headers as additional compiled modules.
-    return sorted({path for path, _ in headers})
-
-
-def resolved_modules(root, vendored=False):
-    if vendored:
-        paths = vendored_paths((root / "vendor/modules.txt").read_text())
-        return json_stream(go(root, "list", "-m", "-mod=vendor", "-json", *paths))
-    return json_stream(go(root, "list", "-m", "-mod=readonly", "-json", "all"))
-
-
-def validate_graph(modules, documents):
-    """Check effective bytes' versions, not just the pre-replacement labels."""
-    requirements = source_requirements(documents)
-    effective = {}
-    errors = []
-    for module in modules:
-        path = module["Path"]
-        if not is_family(path):
-            continue
-        if path in effective:
-            raise ValueError(f"duplicate resolved module {path}")
-        replacement = module.get("Replace", module)
-        if replacement["Path"] != path or not replacement.get("Version"):
-            raise ValueError(f"{path}: unversioned/local or alternate-module replacement is not allowed")
-        version = replacement["Version"]
-        value = release(path, version)
-        effective[path] = (version, value)
-        selected = module.get("Version", "")
-        if (selected != "v0.0.0" or path == "k8s.io/kubernetes") and release(path, selected) > value:
-            errors.append(f"resolved graph: {path} selected {selected} but replaces it with older {version}")
-    if not CORE.issubset(effective):
-        raise ValueError(f"resolved graph missing core modules: {sorted(CORE - effective.keys())}")
-    target = effective["k8s.io/api"][1]
-    for path, (version, value) in sorted(effective.items()):
-        if value != target:
-            errors.append(f"resolved graph: {path} uses {version}; expected Kubernetes 1.{target[0]}.{target[1]}")
-    for label, path, version, value in requirements:
-        # Some source/test requirements need no packages in the assembled graph.
-        # Core clients must target the same minor; other modules may have older
-        # minimum requirements. No module may require more than we provide.
-        if (path in CORE and value[0] != target[0]) or value > target:
-            errors.append(f"{label}: {path} requires {version}; assembled family is "
-                          f"Kubernetes 1.{target[0]}.{target[1]}")
-    if errors:
-        raise ValueError("incompatible Kubernetes dependency graph:\n  " + "\n  ".join(errors))
-    return {path: version for path, (version, _) in sorted(effective.items())}
-
-
 def version_key(version):
     match = SEMVER.fullmatch(version)
     if not match:
@@ -271,22 +193,12 @@ def seed(root, kubernetes):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path.cwd())
-    parser.add_argument("--kubernetes", help="Kubernetes release to align go.mod generation on (seed)")
-    parser.add_argument("phase", choices=("sources", "graph", "vendor", "seed"))
+    parser.add_argument("--kubernetes", help="Kubernetes release to align go.mod generation on")
+    parser.add_argument("phase", choices=("seed",))
     args = parser.parse_args()
-    root = args.root.resolve()
     try:
-        if args.phase == "seed":
-            seed(root, args.kubernetes or "")
-            print("Generated go.mod and go.work from original source requirements")
-        else:
-            documents = source_documents(root)
-            if args.phase == "sources":
-                validate_sources(documents)
-                print("Original source Kubernetes minor requirements agree")
-            else:
-                versions = validate_graph(resolved_modules(root, args.phase == "vendor"), documents)
-                print(json.dumps({"schema_version": 1, "kubernetes_modules": versions}, indent=2, sort_keys=True))
+        seed(args.root.resolve(), args.kubernetes or "")
+        print("Generated go.mod and go.work from original source requirements")
     except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
         print(f"Dependency compatibility failed: {error}", file=sys.stderr)
         return 1

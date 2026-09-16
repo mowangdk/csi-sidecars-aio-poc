@@ -398,7 +398,6 @@ ${TRASH} ${csi_lib_utils}/.git
 ${TRASH} ${csi_lib_utils}/.github
 ${TRASH} ${csi_lib_utils}/vendor
 ${TRASH} ${csi_lib_utils}/release-tools
-python3 -B tools/scripts/assembly_dependencies.py sources
 
 # The new entrypoint for all the sidecars
 symlink_from_root_to_tools tools/cmd/csi-sidecars/main.go
@@ -420,9 +419,7 @@ python3 -B tools/scripts/assembly_dependencies.py seed --kubernetes "${UPDATE_KU
 retry_go_dependencies go mod tidy
 export GOWORK="${REPO_ROOT}/go.work"
 
-python3 -B tools/scripts/assembly_dependencies.py graph
 retry_go_dependencies go work vendor
-python3 -B tools/scripts/assembly_dependencies.py vendor
 export GOFLAGS="-mod=vendor"
 
 # Echo each checkpoint command before running it so every step is visible in

@@ -30,8 +30,8 @@ bump), not as a step of every build.
 | `scripts/verify_artifacts_test.py` | Regression tests for the artifact verifier; no assembly or container engine required. |
 | `scripts/assembly_sources.py` | Source-lock validation and exact single-commit checkout of each upstream input. |
 | `scripts/assembly_sources_test.py` | Malformed-lock, stale-output, exact-history import, and update-channel fixtures. |
-| `scripts/assembly_dependencies.py` | Generates `go.mod`/`go.work` from the original sources and rejects Kubernetes family drift/replacement downgrades. |
-| `scripts/assembly_dependencies_test.py` | Family drift, hidden downgrade, go.mod generation, and real Go parser/vendor fixtures. |
+| `scripts/assembly_dependencies.py` | Generates `go.mod`/`go.work` from the original sources, aligning the Kubernetes family on the selected release and rejecting cross-minor source drift. |
+| `scripts/assembly_dependencies_test.py` | Source-validation, cross-minor drift, go.mod generation, and real Go parser fixtures. |
 | `scripts/build_environment.py` | Locked builder-image selection, tool preflight, and fresh hash-verified Python bootstrap. |
 | `scripts/build_environment_test.py` | Builder/version, wheel tampering, partial-install, and generator-integrity fixtures. |
 | `scripts/image_inputs.py` | Image-lock/Dockerfile checks, standalone Dockerfile generation, test-image selection, and explicit registry verification. |
@@ -80,9 +80,10 @@ to the exact commits to sync. Normal sync consumes that lock directly; the branc
 names in `sidecars.conf` are update metadata only.
 
 The source lock targets Kubernetes 1.36.3, with staging modules aligned at
-0.36.3. `assembly_dependencies.py` checks the effective replacement versions, all
-Kubernetes staging modules, and the original component requirements (including
-the snapshot client), and rejects downgrade/fork/local replacements.
+0.36.3. `assembly_dependencies.py seed` reads the original component
+requirements (including the snapshot client), aligns every Kubernetes staging
+module on the selected release, and rejects cross-minor source drift or
+downgrade replacements while generating `go.mod`/`go.work`.
 
 ## Runtime and legacy test image inputs
 
