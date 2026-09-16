@@ -65,6 +65,24 @@ class IsolatedSnapshotTests(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, "escapes snapshot"):
                         isolated_sync.snapshot(root, Path(directory) / "copy")
 
+    def test_snapshot_excludes_committed_generated_tree(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "root"
+            root.mkdir()
+            (root / "pkg").mkdir()
+            (root / "pkg/x.go").write_text("generated upstream copy")
+            (root / "go.mod").write_text("module example.org/assembly\n")
+            (root / "kept.go").write_text("maintained")
+            destination = Path(directory) / "copy"
+            with patch.object(isolated_sync.subprocess, "run"), patch.object(
+                isolated_sync.subprocess, "check_output",
+                side_effect=[b"pkg/x.go\0go.mod\0go.work\0kept.go\0", b""]
+            ):
+                isolated_sync.snapshot(root, destination)
+            self.assertEqual((destination / "kept.go").read_text(), "maintained")
+            for name in ("pkg", "go.mod", "go.work"):
+                self.assertFalse((destination / name).exists(), name)
+
     def test_container_command_is_locked_and_isolated(self):
         for engine in ("podman", "docker"):
             command = isolated_sync.container_command(

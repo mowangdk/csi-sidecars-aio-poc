@@ -26,5 +26,10 @@ if ! command -v trash; then
   TRASH="rm -rf"
 fi
 
-# removes all the generated files
-${TRASH} pkg cmd staging vendor go.mod go.sum go.work go.work.sum tmp bin
+# removes all the generated files; missing paths are skipped so the script can
+# run on any checkout state (fresh clone, partially assembled, fully populated)
+for path in pkg cmd staging vendor go.mod go.sum go.work go.work.sum tmp bin; do
+  if [[ -e "${path}" || -L "${path}" ]]; then
+    ${TRASH} "${path}"
+  fi
+done

@@ -70,6 +70,11 @@ fi
 SOURCE_LOCK="${REPO_ROOT}/tools/assembly/sources.lock.json"
 python3 tools/scripts/assembly_sources.py --lock "${SOURCE_LOCK}" preflight --root "${REPO_ROOT}"
 
+# A checkout of this repository contains the committed generated tree. Preflight
+# verified everything present is tracked and clean, so regeneration removes it
+# before any assembly input is created (tmp/ is reserved atomically below).
+"${REPO_ROOT}/tools/scripts/cleanup.sh"
+
 # go.mod/go.work are generated from the original source requirements, so a fresh
 # assembly always needs the explicit Kubernetes release to align the family on.
 if [[ $# != 2 || $1 != "--update-dependencies" || ! $2 =~ ^1\.[0-9]+\.[0-9]+$ ]]; then

@@ -83,6 +83,8 @@ likewise a symlink from `pkg/attacher/cmd/csi-attacher/main.go` into `tools/`.
 ```bash
 # Regenerate the assembly area from upstream + hand-maintained tools/. Requires
 # the locked Linux builder; generates go.mod/go.work and vendors dependencies.
+# The existing tree must be committed (tracked and clean); sync removes and
+# regenerates it.
 ./tools/scripts/sync.sh --update-dependencies 1.MINOR.PATCH
 
 # Build directly from a populated tree (no sync needed).

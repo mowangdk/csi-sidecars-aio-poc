@@ -27,6 +27,14 @@ import build_environment
 
 ROOT = Path(__file__).resolve().parents[2]
 
+# Generated outputs are reproducible from tools/ and the locks; the snapshot
+# excludes them so the isolated copy always assembles from a fresh tree (and a
+# checkout with the committed generated tree stays snapshot-friendly).
+GENERATED_OUTPUTS = frozenset({
+    "pkg", "cmd", "staging", "vendor", "tmp", "bin",
+    "go.mod", "go.sum", "go.work", "go.work.sum",
+})
+
 
 def snapshot(root, destination):
     """Copy tracked working files (plus new maintained tools/) to a fresh clone."""
@@ -40,6 +48,8 @@ def snapshot(root, destination):
          "--exclude-standard", "--", "tools"])
     for name in sorted(set((tracked + added).split(b"\0")) - {b""}):
         relative = Path(os.fsdecode(name))
+        if relative.parts[0] in GENERATED_OUTPUTS:
+            continue
         source = root / relative
         target = destination / relative
         if source.is_symlink():

@@ -264,21 +264,25 @@ with a plain compile (no sync step):
 make build
 ```
 
-To regenerate the assembly area (for example after an upstream revision bump),
-including from macOS with a Linux container engine, preload the locked builder
-image and run the isolated helper:
+To regenerate the committed assembly area (for example after an upstream
+revision bump), including from macOS with a Linux container engine, preload the
+locked builder image and run the isolated helper in place:
 
 ```bash
 podman pull "$(python3 -B tools/scripts/build_environment.py image)"
-python3 -B tools/scripts/isolated_sync.py --engine podman --update-dependencies 1.MINOR.PATCH
+python3 -B tools/scripts/isolated_sync.py --engine podman --in-place --update-dependencies 1.MINOR.PATCH
+git add pkg cmd staging vendor go.mod go.sum go.work go.work.sum
 ```
 
 Use `docker pull` and `--engine docker` for Docker. Arbitrary image overrides
-are rejected. `--tooling-only` exercises tooling tests, gofmt, and license
-checks without assembling.
+are rejected. The existing tree must be committed (tracked and clean): sync
+removes it and assembles fresh, so a dirty or interrupted tree stops the sync
+until `./tools/scripts/cleanup.sh` resets it. `--tooling-only` exercises
+tooling tests, gofmt, and license checks without assembling.
 
-The helper copies tracked working files and new maintained files under `tools/`
-to a fresh `.work/assembly-*/source` directory, then runs sync only on that copy.
+Without `--in-place`, the helper copies tracked working files (excluding the
+reproducible generated tree) and new maintained files under `tools/` to a
+fresh `.work/assembly-*/source` directory, then runs sync only on that copy.
 It preserves edits, leaves developer caches and unrelated untracked files out,
 and retains the assembly log and source for diagnosis. It does not mount the
 original checkout, kubeconfig, or engine socket into the container. Sync

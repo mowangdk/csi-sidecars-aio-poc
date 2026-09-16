@@ -88,6 +88,33 @@ class SourceLockTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 sources.require_fresh(root)
 
+    def test_preflight_accepts_tracked_clean_generated_tree(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / ".git").mkdir()
+            for name in ("pkg", "cmd", "staging", "vendor"):
+                (root / name).mkdir()
+            (root / "go.mod").write_text("module example.org/assembly\n")
+            ls_files = "pkg/a.go\ncmd/b.go\nstaging/c.go\nvendor/d.go\ngo.mod\n"
+            with patch.object(sources, "git", side_effect=["", ls_files]) as git:
+                sources.require_fresh(root)
+            self.assertEqual(git.call_count, 2)
+            status = git.call_args_list[0]
+            self.assertEqual(status.args[:3], ("status", "--porcelain", "--untracked-files=all"))
+
+    def test_preflight_rejects_dirty_or_untracked_generated_tree(self):
+        for status, ls_files, message in (
+                (" M pkg/a.go", "pkg/a.go", "uncommitted"),
+                ("?? pkg/new.go", "pkg/a.go", "uncommitted"),
+                ("", "", "untracked")):
+            with self.subTest(message=message), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                (root / ".git").mkdir()
+                (root / "pkg").mkdir()
+                with patch.object(sources, "git", side_effect=[status, ls_files]):
+                    with self.assertRaisesRegex(ValueError, message):
+                        sources.require_fresh(root)
+
     def test_checkout_uses_original_sha_and_stable_ref(self):
         with tempfile.TemporaryDirectory() as directory:
             destination = Path(directory) / "source"

@@ -58,6 +58,10 @@ class SeedTests(unittest.TestCase):
         positions = [script.index(checkpoint) for checkpoint in checkpoints]
         self.assertEqual(positions, sorted(positions))
         self.assertEqual(script.count("retry_go_dependencies go mod tidy"), 1)
+        # The committed generated tree is removed (after preflight) before any
+        # assembly input is created.
+        self.assertLess(script.index("preflight"), script.index("cleanup.sh"))
+        self.assertLess(script.index("cleanup.sh"), script.index("mkdir tmp"))
 
 
 @unittest.skipUnless(shutil.which("go"), "Go required for the real source-manifest fixture")

@@ -33,6 +33,9 @@ REPOSITORIES = {
 }
 IMPORT_BRANCH = "csi-aio-import"
 SHA = re.compile(r"[0-9a-f]{40}")
+# Outputs reserved by the assembly; a run never reuses them from a previous one.
+GENERATED_OUTPUTS = ("tmp", "pkg", "cmd", "bin", "vendor",
+                     "go.mod", "go.sum", "go.work", "go.work.sum")
 
 
 def unique_object(pairs):
@@ -83,15 +86,36 @@ def git(*args, cwd=None):
 
 
 def require_fresh(root):
-    """Do not reuse transformed sources, even after a failed/interrupted sync."""
-    for name in ("tmp", "pkg", "cmd", "vendor", "bin", "go.mod", "go.sum", "go.work", "go.work.sum"):
-        path = root / name
-        if path.exists() or path.is_symlink():
-            raise ValueError(f"existing assembly input/output {name}; use a fresh isolated checkout")
+    """Existing generated output must be restorable: git-tracked and clean.
+
+    A fresh isolated snapshot contains none of these paths. A checkout of the
+    committed tree contains them tracked and clean, so the sync can delete and
+    regenerate them without destroying work. Anything else — a partial or
+    hand-edited assembly, an interrupted run, an untracked experiment — must be
+    removed explicitly with tools/scripts/cleanup.sh first.
+    """
+    root = Path(root)
+    present = [name for name in GENERATED_OUTPUTS
+               if (path := root / name).exists() or path.is_symlink()]
     staging = root / "staging"
     if staging.is_symlink() or (staging.exists() and (
             not staging.is_dir() or any(p.is_symlink() or p.is_file() for p in staging.rglob("*")))):
-        raise ValueError("existing staging inputs; use a fresh isolated checkout")
+        present.append("staging")
+    if not present:
+        return
+    if not (root / ".git").exists():
+        raise ValueError(f"existing assembly input/output {present[0]}; "
+                         "use a fresh isolated checkout or tools/scripts/cleanup.sh")
+    dirty = git("status", "--porcelain", "--untracked-files=all", "--", *present, cwd=root)
+    if dirty:
+        raise ValueError(f"uncommitted generated output {dirty.splitlines()[0]}; "
+                         "commit it or run tools/scripts/cleanup.sh")
+    tracked = git("ls-files", "--", *present, cwd=root)
+    covered = {line.split("/", 1)[0] for line in tracked.splitlines()}
+    untracked = [name for name in present if name not in covered]
+    if untracked:
+        raise ValueError(f"existing untracked assembly output {untracked[0]}; "
+                         "run tools/scripts/cleanup.sh")
 
 
 def checkout(lock, name, destination):
