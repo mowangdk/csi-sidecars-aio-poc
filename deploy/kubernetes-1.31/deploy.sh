@@ -151,24 +151,21 @@ if version_gt $(rbac_version "${BASE_DIR}/hostpath/csi-hostpath-snapshotter.yaml
 	SNAPSHOTTER_RBAC_RELATIVE_PATH="csi-snapshotter/rbac-csi-snapshotter.yaml"
 fi
 
-# Override(mauriciopoppe): These lines are pulling manifests from a remote repository at some version
-# the version is computed by reading the yaml file ./hostpath/csi-hostpath-plugin.yaml and finding
-# the containers with a name = <component> and getting the version from the tag.
-#
-# Instead of doing that, let's just hardcode the version that we know we have to pull.
-# CSI_PROVISIONER_RBAC_YAML="https://raw.githubusercontent.com/kubernetes-csi/external-provisioner/$(rbac_version "${BASE_DIR}/hostpath/csi-hostpath-provisioner.yaml" csi-provisioner false)/deploy/kubernetes/rbac.yaml"
-# : ${CSI_PROVISIONER_RBAC:=https://raw.githubusercontent.com/kubernetes-csi/external-provisioner/$(rbac_version "${BASE_DIR}/hostpath/csi-hostpath-provisioner.yaml" csi-provisioner "${UPDATE_RBAC_RULES}")/deploy/kubernetes/rbac.yaml}
-# CSI_ATTACHER_RBAC_YAML="https://raw.githubusercontent.com/kubernetes-csi/external-attacher/$(rbac_version "${BASE_DIR}/hostpath/csi-hostpath-attacher.yaml" csi-attacher false)/deploy/kubernetes/rbac.yaml"
-# : ${CSI_ATTACHER_RBAC:=https://raw.githubusercontent.com/kubernetes-csi/external-attacher/$(rbac_version "${BASE_DIR}/hostpath/csi-hostpath-attacher.yaml" csi-attacher "${UPDATE_RBAC_RULES}")/deploy/kubernetes/rbac.yaml}
-# CSI_RESIZER_RBAC_YAML="https://raw.githubusercontent.com/kubernetes-csi/external-resizer/$(rbac_version "${BASE_DIR}/hostpath/csi-hostpath-resizer.yaml" csi-resizer false)/deploy/kubernetes/rbac.yaml"
-# : ${CSI_RESIZER_RBAC:=https://raw.githubusercontent.com/kubernetes-csi/external-resizer/$(rbac_version "${BASE_DIR}/hostpath/csi-hostpath-resizer.yaml" csi-resizer "${UPDATE_RBAC_RULES}")/deploy/kubernetes/rbac.yaml}
+# The AIO image builds attacher, provisioner, and resizer from this repository,
+# so their RBAC rules come from the same locked source revisions as the synced
+# code rather than from per-image tags. The snapshotter and health monitor run
+# as upstream images, so their RBAC keeps following the image tags below.
+SOURCE_LOCK="${BASE_DIR}/../../tools/assembly/sources.lock.json"
+lock_commit () {
+    python3 -c "import json, sys; print(json.load(open(sys.argv[1]))['sources'][sys.argv[2]]['commit'])" "${SOURCE_LOCK}" "$1"
+}
 
-CSI_PROVISIONER_RBAC_YAML="https://raw.githubusercontent.com/kubernetes-csi/external-provisioner/v4.0.0/deploy/kubernetes/rbac.yaml"
-: ${CSI_PROVISIONER_RBAC:=https://raw.githubusercontent.com/kubernetes-csi/external-provisioner/v4.0.0/deploy/kubernetes/rbac.yaml}
-CSI_ATTACHER_RBAC_YAML="https://raw.githubusercontent.com/kubernetes-csi/external-attacher/v4.5.0/deploy/kubernetes/rbac.yaml"
-: ${CSI_ATTACHER_RBAC:=https://raw.githubusercontent.com/kubernetes-csi/external-attacher/v4.5.0/deploy/kubernetes/rbac.yaml}
-CSI_RESIZER_RBAC_YAML="https://raw.githubusercontent.com/kubernetes-csi/external-resizerv1.10.0/deploy/kubernetes/rbac.yaml"
-: ${CSI_RESIZER_RBAC:=https://raw.githubusercontent.com/kubernetes-csi/external-resizer/v1.10.0/deploy/kubernetes/rbac.yaml}
+CSI_PROVISIONER_RBAC_YAML="https://raw.githubusercontent.com/kubernetes-csi/external-provisioner/$(lock_commit provisioner)/deploy/kubernetes/rbac.yaml"
+: ${CSI_PROVISIONER_RBAC:=${CSI_PROVISIONER_RBAC_YAML}}
+CSI_ATTACHER_RBAC_YAML="https://raw.githubusercontent.com/kubernetes-csi/external-attacher/$(lock_commit attacher)/deploy/kubernetes/rbac.yaml"
+: ${CSI_ATTACHER_RBAC:=${CSI_ATTACHER_RBAC_YAML}}
+CSI_RESIZER_RBAC_YAML="https://raw.githubusercontent.com/kubernetes-csi/external-resizer/$(lock_commit resizer)/deploy/kubernetes/rbac.yaml"
+: ${CSI_RESIZER_RBAC:=${CSI_RESIZER_RBAC_YAML}}
 
 CSI_SNAPSHOTTER_RBAC_YAML="https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/$(rbac_version "${BASE_DIR}/hostpath/csi-hostpath-snapshotter.yaml" csi-snapshotter false)/deploy/kubernetes/${SNAPSHOTTER_RBAC_RELATIVE_PATH}"
 : ${CSI_SNAPSHOTTER_RBAC:=https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/$(rbac_version "${BASE_DIR}/hostpath/csi-hostpath-snapshotter.yaml" csi-snapshotter "${UPDATE_RBAC_RULES}")/deploy/kubernetes/${SNAPSHOTTER_RBAC_RELATIVE_PATH}}

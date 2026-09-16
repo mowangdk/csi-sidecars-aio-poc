@@ -77,10 +77,12 @@ The key design points from the KEP as implemented (or targeted) by this repo:
   images, and is not committed; a fresh checkout builds after one sync run.
   See the [build workflow](./tools/README.md) for details.
 - **RBAC**: the design reuses each enabled controller's upstream policy. The
-  current hostpath test deployment references fixed, older RBAC versions; these
-  are not generated from the synced source revisions. Driver maintainers must
-  verify permissions against the actual controller versions and features they
-  enable rather than treating the test deployment as a production installer.
+  hostpath test deployment fetches RBAC for the three merged sidecars from the
+  locked source revisions, and from the image tags for the upstream-deployed
+  snapshotter and health monitor. It is still a test fixture: driver
+  maintainers must verify permissions against the actual controller versions
+  and features they enable rather than treating the test deployment as a
+  production installer.
 
 ## Scope and status
 
